@@ -56,6 +56,30 @@ pub fn parse_epub(path: &Path) -> anyhow::Result<EpubBook> {
     })
 }
 
+pub fn get_chapter_content(path: &Path, href: &str) -> anyhow::Result<String> {
+    let mut doc = epub::doc::EpubDoc::new(path)?;
+    
+    // href might be a fragment like "chapter1.html" or "chapter1.html#section2"
+    let (resource_path, _fragment) = href.split_once('#').unwrap_or((href, ""));
+    
+    // Find the resource by path
+    let content = doc.get_resource_by_path(resource_path)
+        .or_else(|| {
+            // Try matching by filename if full path doesn't work
+            let filename = std::path::Path::new(resource_path)
+                .file_name()?
+                .to_str()?;
+            let found_id = doc.resources.iter()
+                .find(|(_, res)| res.path.ends_with(filename))
+                .map(|(id, _)| id.clone());
+            found_id.and_then(|id| doc.get_resource(&id).map(|(data, _)| data))
+        })
+        .ok_or_else(|| anyhow::anyhow!("Chapter not found: {}", href))?;
+
+    let html = String::from_utf8_lossy(&content).to_string();
+    Ok(html)
+}
+
 fn build_toc<R: std::io::Read + std::io::Seek>(doc: &epub::doc::EpubDoc<R>) -> Vec<TocEntry> {
     doc.toc
         .iter()
