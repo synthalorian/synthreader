@@ -6,12 +6,12 @@ Thread reader / RSS aggregator. Rust + Tauri. Cross-platform desktop app.
 
 ## v0.1.0 — Fetch (Now)
 
-- [ ] Define core data model: Article, Feed, Folder, Tag
-- [ ] Implement RSS/Atom feed parsing (`rss` crate)
-- [ ] HTTP client for fetching feeds + articles
-- [ ] SQLite schema + migrations (`sqlx`)
-- [ ] Store feeds, articles, read state in local DB
-- [ ] Background feed refresh (async)
+- [x] Define core data model: Article, Feed, Folder, Tag
+- [x] Implement RSS/Atom feed parsing (`rss` crate)
+- [x] HTTP client for fetching feeds + articles
+- [x] SQLite schema + migrations (`sqlx`)
+- [x] Store feeds, articles, read state in local DB
+- [x] Background feed refresh (async)
 
 ## v0.2.0 — Read
 

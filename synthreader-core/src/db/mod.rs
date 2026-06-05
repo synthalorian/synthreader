@@ -7,6 +7,12 @@ pub struct LibraryDb {
     pool: SqlitePool,
 }
 
+impl LibraryDb {
+    pub(crate) fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct BookRow {
     pub id: i64,
@@ -171,6 +177,7 @@ impl LibraryDb {
 
     // -- Article methods --
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_article(
         &self,
         feed_id: i64,

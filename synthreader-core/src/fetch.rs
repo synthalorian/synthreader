@@ -4,6 +4,12 @@ pub struct FeedFetcher {
     client: reqwest::Client,
 }
 
+impl Default for FeedFetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeedFetcher {
     pub fn new() -> Self {
         Self {
