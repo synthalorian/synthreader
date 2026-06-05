@@ -1,0 +1,23 @@
+[package]
+name = "synthreader"
+version = "0.1.0"
+description = "Synthwave '84 Ebook Reader"
+authors = ["synthalorian"]
+edition = "2024"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+synthreader-core = { path = "../synthreader-core" }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
