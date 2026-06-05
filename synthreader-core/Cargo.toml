@@ -20,5 +20,8 @@ rss = "2"
 atom_syndication = "0.12"
 chrono = { workspace = true }
 
+ttf-parser = "0.25"
+dirs = "6"
+
 [dev-dependencies]
 tempfile = "3"

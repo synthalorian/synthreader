@@ -4,10 +4,20 @@ interface EpubChapter {
   content: string
 }
 
+interface SystemFont {
+  name: string
+  path: string
+  family: string
+}
+
 export class EpubRenderer extends HTMLElement {
   private chapters: EpubChapter[] = []
   private currentChapter = 0
   private tocVisible = false
+  private bookId: number = 0
+  private fonts: SystemFont[] = []
+  private selectedFontPath: string = ''
+  private fontPickerVisible = false
 
   constructor() {
     super()
@@ -15,7 +25,9 @@ export class EpubRenderer extends HTMLElement {
   }
 
   async loadEpub(bookId: number) {
-    // TODO: Fetch chapters from backend
+    this.bookId = bookId
+    await this.loadFonts()
+    await this.loadChapters()
     this.render()
   }
 
@@ -24,11 +36,79 @@ export class EpubRenderer extends HTMLElement {
     this.render()
   }
 
+  private async loadFonts() {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      this.fonts = await invoke<SystemFont[]>('get_system_fonts')
+
+      // Load saved preference
+      const saved = await invoke<string | null>('get_font_preference')
+      if (saved) {
+        this.selectedFontPath = saved
+      } else if (this.fonts.length > 0) {
+        // Default to 3270 Nerd Font if available
+        const nerdFont = this.fonts.find(f =>
+          f.name.toLowerCase().includes('3270') ||
+          f.family.toLowerCase().includes('3270')
+        )
+        this.selectedFontPath = nerdFont?.path || this.fonts[0].path
+      }
+    } catch (e) {
+      console.error('Failed to load fonts:', e)
+    }
+  }
+
+  private async loadChapters() {
+    if (!this.bookId) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const chapters = await invoke<{ href: string; title: string }[]>('get_book_chapters', {
+        bookId: this.bookId
+      })
+      this.chapters = chapters.map(ch => ({
+        ...ch,
+        content: ''
+      }))
+    } catch (e) {
+      console.error('Failed to load chapters:', e)
+    }
+  }
+
+  private async loadChapterContentAsync(href: string): Promise<string> {
+    if (!this.bookId) return ''
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const content = await invoke<string>('get_chapter_content', {
+        bookId: this.bookId,
+        href
+      })
+      return content
+    } catch (e) {
+      console.error('Failed to load chapter content:', e)
+      return `<p>Error loading chapter: ${e}</p>`
+    }
+  }
+
+  private async saveFontPreference(path: string) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('set_font_preference', { fontPath: path })
+    } catch (e) {
+      console.error('Failed to save font preference:', e)
+    }
+  }
+
+  private getSelectedFont(): SystemFont | undefined {
+    return this.fonts.find(f => f.path === this.selectedFontPath)
+  }
+
   private render() {
     const chapter = this.chapters[this.currentChapter]
     const progress = this.chapters.length > 0
       ? (this.currentChapter + 1) / this.chapters.length
       : 0
+
+    const selectedFont = this.getSelectedFont()
 
     this.shadowRoot!.innerHTML = `
       <style>
@@ -55,6 +135,7 @@ export class EpubRenderer extends HTMLElement {
         .reader-controls {
           display: flex;
           gap: 12px;
+          align-items: center;
         }
         .btn-icon {
           background: transparent;
@@ -72,6 +153,57 @@ export class EpubRenderer extends HTMLElement {
           border-color: #05d9e8;
           color: #05d9e8;
           box-shadow: 0 0 8px rgba(5, 217, 232, 0.3);
+        }
+        .font-picker-wrapper {
+          position: relative;
+        }
+        .font-picker-dropdown {
+          position: absolute;
+          top: 100%;
+          right: 0;
+          margin-top: 8px;
+          background: #12122a;
+          border: 1px solid #2a2a5a;
+          border-radius: 4px;
+          max-height: 300px;
+          overflow-y: auto;
+          min-width: 220px;
+          z-index: 300;
+          display: none;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+        .font-picker-dropdown.visible {
+          display: block;
+        }
+        .font-picker-header {
+          padding: 10px 14px;
+          font-family: 'Orbitron', sans-serif;
+          font-size: 11px;
+          color: #05d9e8;
+          border-bottom: 1px solid #2a2a5a;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+        }
+        .font-option {
+          padding: 10px 14px;
+          cursor: pointer;
+          font-size: 13px;
+          color: #a0a0d0;
+          transition: all 150ms ease;
+          border-bottom: 1px solid #1a1a3e;
+        }
+        .font-option:hover {
+          background: rgba(5, 217, 232, 0.1);
+          color: #05d9e8;
+        }
+        .font-option.active {
+          color: #ff2a6d;
+          background: rgba(255, 42, 109, 0.05);
+        }
+        .font-option .font-family {
+          font-size: 11px;
+          color: #606090;
+          margin-top: 2px;
         }
         .reader-body {
           flex: 1;
@@ -174,6 +306,19 @@ export class EpubRenderer extends HTMLElement {
       <div class="reader-header">
         <span class="chapter-title">${chapter?.title || 'Untitled'}</span>
         <div class="reader-controls">
+          <div class="font-picker-wrapper">
+            <button class="btn-icon" id="btn-font">Font: ${selectedFont?.name || 'Default'}</button>
+            <div class="font-picker-dropdown ${this.fontPickerVisible ? 'visible' : ''}" id="font-dropdown">
+              <div class="font-picker-header">Select Font</div>
+              ${this.fonts.map(f => `
+                <div class="font-option ${f.path === this.selectedFontPath ? 'active' : ''}"
+                     data-path="${f.path}">
+                  ${f.name}
+                  <div class="font-family">${f.family}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
           <button class="btn-icon" id="btn-toc">Contents</button>
           <button class="btn-icon" id="btn-prev">← Prev</button>
           <button class="btn-icon" id="btn-next">Next →</button>
@@ -195,11 +340,29 @@ export class EpubRenderer extends HTMLElement {
   private setupEventListeners() {
     this.shadowRoot!.getElementById('btn-toc')?.addEventListener('click', () => {
       this.tocVisible = !this.tocVisible
+      this.fontPickerVisible = false
       this.render()
+    })
+
+    this.shadowRoot!.getElementById('btn-font')?.addEventListener('click', () => {
+      this.fontPickerVisible = !this.fontPickerVisible
+      this.tocVisible = false
+      this.render()
+    })
+
+    this.shadowRoot!.querySelectorAll('.font-option').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const path = (e.currentTarget as HTMLElement).dataset.path!
+        this.selectedFontPath = path
+        this.fontPickerVisible = false
+        this.saveFontPreference(path)
+        this.render()
+      })
     })
 
     this.shadowRoot!.getElementById('backdrop')?.addEventListener('click', () => {
       this.tocVisible = false
+      this.fontPickerVisible = false
       this.render()
     })
 
@@ -227,9 +390,27 @@ export class EpubRenderer extends HTMLElement {
     })
   }
 
-  private loadChapterContent(chapter: EpubChapter) {
+  private async loadChapterContent(chapter: EpubChapter) {
     const frame = this.shadowRoot!.getElementById('content-frame') as HTMLIFrameElement
     if (!frame) return
+
+    let content = chapter.content
+    if (!content && this.bookId) {
+      content = await this.loadChapterContentAsync(chapter.href)
+    }
+
+    const selectedFont = this.getSelectedFont()
+    const fontFamily = selectedFont?.family || 'Inter, Georgia, serif'
+    const fontPath = selectedFont?.path || ''
+
+    const fontFaceRule = fontPath
+      ? `@font-face {
+          font-family: 'ReaderFont';
+          src: url('file://${fontPath}') format('truetype');
+          font-weight: 400;
+          font-style: normal;
+        }`
+      : ''
 
     const html = `
       <!DOCTYPE html>
@@ -237,7 +418,7 @@ export class EpubRenderer extends HTMLElement {
       <head>
         <meta charset="UTF-8">
         <style>
-          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+          ${fontFaceRule}
           :root {
             --reader-bg: #0a0a1a;
             --reader-text: #e0e0ff;
@@ -249,7 +430,7 @@ export class EpubRenderer extends HTMLElement {
           body {
             background: var(--reader-bg) !important;
             color: var(--reader-text) !important;
-            font-family: 'Inter', Georgia, serif !important;
+            font-family: 'ReaderFont', ${fontFamily}, Georgia, serif !important;
             font-size: var(--reader-font-size) !important;
             line-height: var(--reader-line-height) !important;
             max-width: 700px;
@@ -262,7 +443,7 @@ export class EpubRenderer extends HTMLElement {
           ::selection { background: rgba(5, 217, 232, 0.3); color: #fff; }
         </style>
       </head>
-      <body>${chapter.content}</body>
+      <body>${content}</body>
       </html>
     `
 

@@ -342,6 +342,44 @@ impl LibraryDb {
         Ok(())
     }
 
+    // -- Settings methods --
+
+    pub async fn get_setting(&self, key: &str) -> anyhow::Result<Option<String>> {
+        let value: Option<String> = sqlx::query_scalar(
+            "SELECT value FROM settings WHERE key = ?1"
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(value)
+    }
+
+    pub async fn set_setting(&self, key: &str, value: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    // -- Book file methods --
+
+    pub async fn get_book_file_path(&self, book_id: i64) -> anyhow::Result<Option<String>> {
+        let path: Option<String> = sqlx::query_scalar(
+            "SELECT file_path FROM book_files WHERE book_id = ?1 LIMIT 1"
+        )
+        .bind(book_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(path)
+    }
+
     async fn init_schema(pool: &SqlitePool) -> anyhow::Result<()> {
         sqlx::query(
             r#"
@@ -484,6 +522,11 @@ impl LibraryDb {
                 article_id INTEGER REFERENCES articles(id) ON DELETE CASCADE,
                 tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
                 PRIMARY KEY (article_id, tag_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             );
             "#
         )
