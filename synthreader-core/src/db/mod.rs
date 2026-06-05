@@ -5,6 +5,13 @@ pub struct LibraryDb {
     pool: SqlitePool,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct BookRow {
+    pub id: i64,
+    pub title: String,
+    pub cover_path: Option<String>,
+}
+
 impl LibraryDb {
     pub async fn open(path: &Path) -> anyhow::Result<Self> {
         let url = format!("sqlite:{}", path.display());
@@ -16,6 +23,95 @@ impl LibraryDb {
         Self::init_schema(&pool).await?;
         
         Ok(Self { pool })
+    }
+
+    pub async fn add_book(
+        &self,
+        metadata: &crate::BookMetadata,
+        cover_path: &Option<std::path::PathBuf>,
+    ) -> anyhow::Result<i64> {
+        let cover = cover_path.as_ref().map(|p| p.to_string_lossy().to_string());
+        
+        let id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO books (title, subtitle, description, publisher, published_date, language, isbn_10, isbn_13, page_count, cover_path)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            RETURNING id
+            "#
+        )
+        .bind(&metadata.title)
+        .bind(&metadata.subtitle)
+        .bind(&metadata.description)
+        .bind(&metadata.publisher)
+        .bind(&metadata.published_date)
+        .bind(&metadata.language)
+        .bind(&metadata.isbn_10)
+        .bind(&metadata.isbn_13)
+        .bind(metadata.page_count)
+        .bind(&cover)
+        .fetch_one(&self.pool)
+        .await?;
+
+        // Add authors
+        for author in &metadata.authors {
+            let author_id: i64 = sqlx::query_scalar(
+                "INSERT INTO authors (name, sort_name) VALUES (?1, ?1) ON CONFLICT(name) DO UPDATE SET name=excluded.name RETURNING id"
+            )
+            .bind(author)
+            .fetch_one(&self.pool)
+            .await?;
+
+            sqlx::query(
+                "INSERT INTO book_authors (book_id, author_id) VALUES (?1, ?2) ON CONFLICT DO NOTHING"
+            )
+            .bind(id)
+            .bind(author_id)
+            .execute(&self.pool)
+            .await?;
+        }
+
+        Ok(id)
+    }
+
+    pub async fn add_book_file(
+        &self,
+        book_id: i64,
+        format: &str,
+        file_path: &Path,
+        file_size: Option<i64>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO book_files (book_id, format, file_path, file_size) VALUES (?1, ?2, ?3, ?4)"
+        )
+        .bind(book_id)
+        .bind(format)
+        .bind(file_path.to_string_lossy())
+        .bind(file_size)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_books(&self) -> anyhow::Result<Vec<BookRow>> {
+        let books = sqlx::query_as::<_, BookRow>(
+            "SELECT id, title, cover_path FROM books ORDER BY added_date DESC"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(books)
+    }
+
+    pub async fn get_book_authors(&self, book_id: i64) -> anyhow::Result<Vec<String>> {
+        let authors = sqlx::query_scalar::<_, String>(
+            "SELECT a.name FROM authors a JOIN book_authors ba ON a.id = ba.author_id WHERE ba.book_id = ?1"
+        )
+        .bind(book_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(authors)
     }
 
     async fn init_schema(pool: &SqlitePool) -> anyhow::Result<()> {
