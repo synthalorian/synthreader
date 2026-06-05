@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 use tauri::Manager;
 
 fn main() {
@@ -17,7 +19,15 @@ fn main() {
                 std::fs::create_dir_all(&app_dir).ok();
 
                 match synthreader_core::db::LibraryDb::open(&db_path).await {
-                    Ok(_) => tracing::info!("Library database initialized"),
+                    Ok(db) => {
+                        tracing::info!("Library database initialized");
+                        let db = Arc::new(db);
+
+                        // Start background feed refresh every 15 minutes
+                        let refresh_service = Arc::new(synthreader_core::refresh::FeedRefreshService::new(db));
+                        refresh_service.start_background(Duration::from_secs(900));
+                        tracing::info!("Background feed refresh started (15 min interval)");
+                    }
                     Err(e) => tracing::error!("Failed to initialize database: {}", e),
                 }
             });
@@ -27,7 +37,13 @@ fn main() {
             greet,
             add_books,
             get_books,
-            get_book_cover
+            get_book_cover,
+            add_feed,
+            get_feeds,
+            get_articles,
+            mark_article_read,
+            star_article,
+            refresh_feeds
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -37,6 +53,114 @@ fn main() {
 fn greet(name: &str) -> String {
     format!("Hello, {}! Welcome to Synthreader.", name)
 }
+
+// -- Feed commands --
+
+#[tauri::command]
+async fn add_feed(
+    app: tauri::AppHandle,
+    title: String,
+    url: String,
+    site_url: Option<String>,
+    description: Option<String>,
+    folder_id: Option<i64>,
+) -> Result<i64, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let id = db
+        .add_feed(&title, &url, site_url.as_deref(), description.as_deref(), folder_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(id)
+}
+
+#[tauri::command]
+async fn get_feeds(app: tauri::AppHandle) -> Result<Vec<synthreader_core::Feed>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_feeds().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_articles(
+    app: tauri::AppHandle,
+    feed_id: i64,
+) -> Result<Vec<synthreader_core::Article>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_articles_for_feed(feed_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn mark_article_read(
+    app: tauri::AppHandle,
+    article_id: i64,
+    read: bool,
+) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.mark_article_read(article_id, read)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn star_article(
+    app: tauri::AppHandle,
+    article_id: i64,
+    starred: bool,
+) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.star_article(article_id, starred)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn refresh_feeds(app: tauri::AppHandle) -> Result<synthreader_core::RefreshStats, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let db = Arc::new(db);
+    synthreader_core::run_refresh(db)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// -- Book commands (legacy) --
 
 #[derive(serde::Serialize)]
 struct BookDto {

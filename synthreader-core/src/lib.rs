@@ -8,6 +8,7 @@ pub mod ai;
 pub mod models;
 pub mod feed_parser;
 pub mod fetch;
+pub mod refresh;
 
 use serde::{Deserialize, Serialize};
 
@@ -69,3 +70,4 @@ pub struct TocEntry {
 // Re-export key types from models
 pub use models::{Article, Feed, Folder, Tag};
 pub use feed_parser::{ParsedFeed, ParsedArticle};
+pub use refresh::{FeedRefreshService, RefreshStats, run_refresh};
