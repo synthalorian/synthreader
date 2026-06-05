@@ -1,11 +1,12 @@
 import './styles/theme.css'
 import { invoke } from '@tauri-apps/api/core'
+import { open } from '@tauri-apps/plugin-dialog'
 
 interface Book {
   id: number
   title: string
   authors: string[]
-  coverUrl?: string
+  coverPath?: string
   progress: number
 }
 
@@ -60,7 +61,7 @@ function renderApp() {
   `
 
   setupEventListeners()
-  updateCounts()
+  loadBooks()
 }
 
 function setupEventListeners() {
@@ -72,7 +73,6 @@ function setupEventListeners() {
     filterBooks(query)
   })
 
-  // Drag and drop
   const contentArea = document.getElementById('content-area')!
   contentArea.addEventListener('dragover', (e) => {
     e.preventDefault()
@@ -88,6 +88,17 @@ function setupEventListeners() {
   })
 }
 
+async function loadBooks() {
+  try {
+    const result = await invoke<Book[]>('get_books')
+    books = result
+    updateCounts()
+    renderBookGrid(books)
+  } catch (e) {
+    console.error('Failed to load books:', e)
+  }
+}
+
 function updateCounts() {
   document.getElementById('count-all')!.textContent = String(books.length)
   document.getElementById('count-reading')!.textContent = String(books.filter(b => b.progress > 0 && b.progress < 1).length)
@@ -95,7 +106,19 @@ function updateCounts() {
   document.getElementById('count-want')!.textContent = String(books.filter(b => b.progress === 0).length)
 }
 
-function renderBookGrid(booksToRender: Book[]) {
+async function getCoverUrl(coverPath?: string): Promise<string | undefined> {
+  if (!coverPath) return undefined
+  try {
+    const data = await invoke<number[]>('get_book_cover', { coverPath })
+    const bytes = new Uint8Array(data)
+    const blob = new Blob([bytes], { type: 'image/png' })
+    return URL.createObjectURL(blob)
+  } catch (e) {
+    return undefined
+  }
+}
+
+async function renderBookGrid(booksToRender: Book[]) {
   const grid = document.getElementById('book-grid')!
   const emptyState = document.getElementById('empty-state')!
 
@@ -108,11 +131,18 @@ function renderBookGrid(booksToRender: Book[]) {
   grid.style.display = 'grid'
   emptyState.style.display = 'none'
 
-  grid.innerHTML = booksToRender.map(book => `
+  // Load covers in parallel
+  const covers = await Promise.all(
+    booksToRender.map(b => getCoverUrl(b.coverPath))
+  )
+
+  grid.innerHTML = booksToRender.map((book, i) => {
+    const coverUrl = covers[i]
+    return `
     <div class="book-card" data-id="${book.id}">
       <div class="book-cover">
-        ${book.coverUrl
-          ? `<img src="${book.coverUrl}" alt="${book.title}" loading="lazy">`
+        ${coverUrl
+          ? `<img src="${coverUrl}" alt="${book.title}" loading="lazy">`
           : `<div class="cover-placeholder">
               <span class="cover-letter">${book.title.charAt(0)}</span>
              </div>`
@@ -128,7 +158,7 @@ function renderBookGrid(booksToRender: Book[]) {
         <p class="book-author">${book.authors.join(', ')}</p>
       </div>
     </div>
-  `).join('')
+  `}).join('')
 }
 
 function filterBooks(query: string) {
@@ -140,8 +170,26 @@ function filterBooks(query: string) {
 }
 
 async function addBooks() {
-  // TODO: open file dialog via Tauri
-  console.log('Add books clicked')
+  try {
+    const selected = await open({
+      multiple: true,
+      filters: [{
+        name: 'Ebooks',
+        extensions: ['epub', 'mobi', 'azw3', 'pdf', 'txt']
+      }]
+    })
+
+    if (!selected || (Array.isArray(selected) && selected.length === 0)) return
+
+    const paths = Array.isArray(selected) ? selected : [selected]
+    const added = await invoke<Book[]>('add_books', { paths })
+
+    books = [...books, ...added]
+    updateCounts()
+    renderBookGrid(books)
+  } catch (e) {
+    console.error('Failed to add books:', e)
+  }
 }
 
 // Boot sequence
