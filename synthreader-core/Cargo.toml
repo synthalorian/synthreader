@@ -1,0 +1,21 @@
+[package]
+name = "synthreader-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+anyhow = { workspace = true }
+reqwest = { workspace = true }
+tracing = { workspace = true }
+
+epub = "2"
+mobi = "0.1"
+pdf-extract = "0.7"
+zip = "2"
+
+[dev-dependencies]
+tempfile = "3"
