@@ -193,15 +193,12 @@ async function addBooks() {
   }
 }
 
-function openBook(bookId: number) {
+async function openBook(bookId: number) {
   const app = document.getElementById('app')!
   app.innerHTML = ''
 
   const reader = document.createElement('epub-renderer') as any
-  reader.setChapters([
-    { href: 'chapter1', title: 'Chapter 1', content: '<h1>Chapter 1</h1><p>This is a test chapter. The synthwave reader is working.</p>' },
-    { href: 'chapter2', title: 'Chapter 2', content: '<h1>Chapter 2</h1><p>Another chapter with <a href="#">a link</a> and some text.</p>' }
-  ])
+  await reader.loadEpub(bookId)
 
   app.appendChild(reader)
 }

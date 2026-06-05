@@ -5,6 +5,19 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::Manager;
 
+#[derive(serde::Serialize)]
+struct ChapterDto {
+    href: String,
+    title: String,
+}
+
+#[derive(serde::Serialize)]
+struct FontDto {
+    name: String,
+    path: String,
+    family: String,
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
 
@@ -43,7 +56,12 @@ fn main() {
             get_articles,
             mark_article_read,
             star_article,
-            refresh_feeds
+            refresh_feeds,
+            get_system_fonts,
+            get_book_chapters,
+            get_chapter_content,
+            get_font_preference,
+            set_font_preference
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -269,4 +287,110 @@ async fn get_book_cover(
 ) -> Result<Vec<u8>, String> {
     let path = PathBuf::from(cover_path);
     std::fs::read(&path).map_err(|e| e.to_string())
+}
+
+// -- System font commands --
+
+#[tauri::command]
+fn get_system_fonts() -> Result<Vec<FontDto>, String> {
+    let fonts = synthreader_core::fonts::discover_system_fonts();
+    Ok(fonts
+        .into_iter()
+        .map(|f| FontDto {
+            name: f.name,
+            path: f.path,
+            family: f.family,
+        })
+        .collect())
+}
+
+#[tauri::command]
+async fn get_font_preference(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_setting("reader_font_path")
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_font_preference(
+    app: tauri::AppHandle,
+    font_path: String,
+) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.set_setting("reader_font_path", &font_path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// -- Book reader commands --
+
+#[tauri::command]
+async fn get_book_chapters(
+    app: tauri::AppHandle,
+    book_id: i64,
+) -> Result<Vec<ChapterDto>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let file_path = db
+        .get_book_file_path(book_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("Book file not found")?;
+
+    let path = PathBuf::from(&file_path);
+    let epub = synthreader_core::formats::epub::parse_epub(&path)
+        .map_err(|e| e.to_string())?;
+
+    let chapters = epub
+        .toc
+        .into_iter()
+        .map(|entry| ChapterDto {
+            href: entry.href,
+            title: entry.label,
+        })
+        .collect();
+
+    Ok(chapters)
+}
+
+#[tauri::command]
+async fn get_chapter_content(
+    app: tauri::AppHandle,
+    book_id: i64,
+    href: String,
+) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let file_path = db
+        .get_book_file_path(book_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("Book file not found")?;
+
+    let path = PathBuf::from(&file_path);
+    synthreader_core::formats::epub::get_chapter_content(&path, &href)
+        .map_err(|e| e.to_string())
 }

@@ -4,6 +4,7 @@ pub mod metadata;
 pub mod conversion;
 pub mod sync;
 pub mod ai;
+pub mod fonts;
 
 pub mod models;
 pub mod feed_parser;
