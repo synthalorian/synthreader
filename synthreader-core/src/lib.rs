@@ -5,6 +5,10 @@ pub mod conversion;
 pub mod sync;
 pub mod ai;
 
+pub mod models;
+pub mod feed_parser;
+pub mod fetch;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -61,3 +65,7 @@ pub struct TocEntry {
     pub href: String,
     pub children: Vec<TocEntry>,
 }
+
+// Re-export key types from models
+pub use models::{Article, Feed, Folder, Tag};
+pub use feed_parser::{ParsedFeed, ParsedArticle};
