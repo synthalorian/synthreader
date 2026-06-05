@@ -10,12 +10,15 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { workspace = true }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = "0.3"
+uuid = { version = "1", features = ["v4"] }
 synthreader-core = { path = "../synthreader-core" }
 
 [features]
