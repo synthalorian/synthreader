@@ -1,6 +1,7 @@
 import './styles/theme.css'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
+import './reader/EpubRenderer'
 
 interface Book {
   id: number
@@ -140,7 +141,7 @@ async function renderBookGrid(booksToRender: Book[]) {
     const coverUrl = covers[i]
     return `
     <div class="book-card" data-id="${book.id}">
-      <div class="book-cover">
+      <div class="book-cover" onclick="openBook(${book.id})">
         ${coverUrl
           ? `<img src="${coverUrl}" alt="${book.title}" loading="lazy">`
           : `<div class="cover-placeholder">
@@ -190,6 +191,19 @@ async function addBooks() {
   } catch (e) {
     console.error('Failed to add books:', e)
   }
+}
+
+function openBook(bookId: number) {
+  const app = document.getElementById('app')!
+  app.innerHTML = ''
+
+  const reader = document.createElement('epub-renderer') as any
+  reader.setChapters([
+    { href: 'chapter1', title: 'Chapter 1', content: '<h1>Chapter 1</h1><p>This is a test chapter. The synthwave reader is working.</p>' },
+    { href: 'chapter2', title: 'Chapter 2', content: '<h1>Chapter 2</h1><p>Another chapter with <a href="#">a link</a> and some text.</p>' }
+  ])
+
+  app.appendChild(reader)
 }
 
 // Boot sequence
