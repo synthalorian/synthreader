@@ -1,0 +1,64 @@
+:root {
+  --reader-bg: #0a0a1a;
+  --reader-text: #e0e0ff;
+  --reader-accent: #05d9e8;
+  --reader-font-size: 18px;
+  --reader-line-height: 1.8;
+  --reader-margin: 40px;
+}
+
+body {
+  background: var(--reader-bg) !important;
+  color: var(--reader-text) !important;
+  font-family: 'Inter', Georgia, serif !important;
+  font-size: var(--reader-font-size) !important;
+  line-height: var(--reader-line-height) !important;
+  max-width: 700px;
+  margin: 0 auto;
+  padding: var(--reader-margin);
+}
+
+* {
+  background: transparent !important;
+  color: var(--reader-text) !important;
+  border-color: #2a2a5a !important;
+}
+
+a {
+  color: var(--reader-accent) !important;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+a:hover {
+  border-bottom-color: var(--reader-accent);
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  filter: brightness(0.9) contrast(1.1);
+}
+
+::selection {
+  background: rgba(5, 217, 232, 0.3);
+  color: #fff;
+}
+
+.reader-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #222250;
+  z-index: 1000;
+}
+
+.reader-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff2a6d, #05d9e8);
+  box-shadow: 0 0 10px #05d9e8;
+  transition: width 0.3s ease;
+}
