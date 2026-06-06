@@ -153,7 +153,7 @@ impl LibraryDb {
 
     pub async fn get_feeds(&self) -> anyhow::Result<Vec<Feed>> {
         let feeds = sqlx::query_as::<_, Feed>(
-            "SELECT id, title, url, site_url, description, folder_id, last_fetched, created_at FROM feeds ORDER BY created_at DESC"
+            "SELECT id, title, url, site_url, description, folder_id, last_fetched, last_error, consecutive_errors, created_at FROM feeds ORDER BY created_at DESC"
         )
         .fetch_all(&self.pool)
         .await?;
@@ -173,6 +173,156 @@ impl LibraryDb {
         .await?;
 
         Ok(())
+    }
+
+    pub async fn delete_feed(&self, feed_id: i64) -> anyhow::Result<()> {
+        // Articles will be deleted via ON DELETE CASCADE
+        sqlx::query("DELETE FROM feeds WHERE id = ?1")
+            .bind(feed_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_feed(
+        &self,
+        feed_id: i64,
+        title: &str,
+        url: &str,
+        site_url: Option<&str>,
+        description: Option<&str>,
+        folder_id: Option<i64>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE feeds SET title = ?1, url = ?2, site_url = ?3, description = ?4, folder_id = ?5 WHERE id = ?6"
+        )
+        .bind(title)
+        .bind(url)
+        .bind(site_url)
+        .bind(description)
+        .bind(folder_id)
+        .bind(feed_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn record_feed_error(
+        &self,
+        feed_id: i64,
+        error: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE feeds SET last_error = ?1, consecutive_errors = consecutive_errors + 1 WHERE id = ?2"
+        )
+        .bind(error)
+        .bind(feed_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn clear_feed_error(
+        &self,
+        feed_id: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE feeds SET last_error = NULL, consecutive_errors = 0 WHERE id = ?1"
+        )
+        .bind(feed_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_feed_stats(
+        &self,
+        feed_id: i64,
+    ) -> anyhow::Result<Option<crate::models::FeedStats>> {
+        let stats = sqlx::query_as::<_, crate::models::FeedStats>(
+            r#"
+            SELECT
+                f.id as feed_id,
+                f.title as feed_title,
+                COUNT(a.id) as total_articles,
+                SUM(CASE WHEN a.read = 0 THEN 1 ELSE 0 END) as unread_count,
+                SUM(CASE WHEN a.starred = 1 THEN 1 ELSE 0 END) as starred_count,
+                f.last_fetched,
+                f.last_error,
+                f.consecutive_errors
+            FROM feeds f
+            LEFT JOIN articles a ON a.feed_id = f.id
+            WHERE f.id = ?1
+            GROUP BY f.id
+            "#
+        )
+        .bind(feed_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(stats)
+    }
+
+    pub async fn get_all_feed_stats(
+        &self,
+    ) -> anyhow::Result<Vec<crate::models::FeedStats>> {
+        let stats = sqlx::query_as::<_, crate::models::FeedStats>(
+            r#"
+            SELECT
+                f.id as feed_id,
+                f.title as feed_title,
+                COUNT(a.id) as total_articles,
+                SUM(CASE WHEN a.read = 0 THEN 1 ELSE 0 END) as unread_count,
+                SUM(CASE WHEN a.starred = 1 THEN 1 ELSE 0 END) as starred_count,
+                f.last_fetched,
+                f.last_error,
+                f.consecutive_errors
+            FROM feeds f
+            LEFT JOIN articles a ON a.feed_id = f.id
+            GROUP BY f.id
+            ORDER BY f.title
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(stats)
+    }
+
+    pub async fn get_library_stats(&self) -> anyhow::Result<crate::models::LibraryStats> {
+        let total_feeds: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM feeds")
+            .fetch_one(&self.pool)
+            .await?;
+
+        let total_articles: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM articles")
+            .fetch_one(&self.pool)
+            .await?;
+
+        let total_unread: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM articles WHERE read = 0")
+            .fetch_one(&self.pool)
+            .await?;
+
+        let total_starred: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM articles WHERE starred = 1")
+            .fetch_one(&self.pool)
+            .await?;
+
+        let feeds_with_errors: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM feeds WHERE consecutive_errors > 0"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(crate::models::LibraryStats {
+            total_feeds,
+            total_articles,
+            total_unread,
+            total_starred,
+            feeds_with_errors,
+        })
     }
 
     // -- Article methods --
@@ -471,7 +621,7 @@ impl LibraryDb {
         folder_id: i64,
     ) -> anyhow::Result<Vec<Feed>> {
         let feeds = sqlx::query_as::<_, Feed>(
-            "SELECT id, title, url, site_url, description, folder_id, last_fetched, created_at FROM feeds WHERE folder_id = ?1 ORDER BY created_at DESC"
+            "SELECT id, title, url, site_url, description, folder_id, last_fetched, last_error, consecutive_errors, created_at FROM feeds WHERE folder_id = ?1 ORDER BY created_at DESC"
         )
         .bind(folder_id)
         .fetch_all(&self.pool)
@@ -610,6 +760,83 @@ impl LibraryDb {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn delete_old_articles(
+        &self,
+        older_than_days: i64,
+        keep_starred: bool,
+    ) -> anyhow::Result<usize> {
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(older_than_days);
+
+        let result = if keep_starred {
+            sqlx::query(
+                "DELETE FROM articles WHERE created_at < ?1 AND starred = 0"
+            )
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await?
+        } else {
+            sqlx::query(
+                "DELETE FROM articles WHERE created_at < ?1"
+            )
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await?
+        };
+
+        Ok(result.rows_affected() as usize)
+    }
+
+    pub async fn delete_article(&self, article_id: i64) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM articles WHERE id = ?1")
+            .bind(article_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn mark_all_articles_read(
+        &self,
+        feed_id: Option<i64>,
+    ) -> anyhow::Result<usize> {
+        let result = if let Some(fid) = feed_id {
+            sqlx::query("UPDATE articles SET read = 1 WHERE feed_id = ?1 AND read = 0")
+                .bind(fid)
+                .execute(&self.pool)
+                .await?
+        } else {
+            sqlx::query("UPDATE articles SET read = 1 WHERE read = 0")
+                .execute(&self.pool)
+                .await?
+        };
+
+        Ok(result.rows_affected() as usize)
+    }
+
+    pub async fn find_duplicate_articles(
+        &self,
+        feed_id: i64,
+    ) -> anyhow::Result<Vec<(i64, String)>> {
+        let duplicates = sqlx::query_as::<_, (i64, String)>(
+            r#"
+            SELECT id, title
+            FROM articles
+            WHERE feed_id = ?1
+              AND id NOT IN (
+                SELECT MIN(id)
+                FROM articles
+                WHERE feed_id = ?1
+                GROUP BY url
+              )
+            "#
+        )
+        .bind(feed_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(duplicates)
     }
 
     // -- Settings methods --
@@ -764,6 +991,8 @@ impl LibraryDb {
                 description TEXT,
                 folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
                 last_fetched TIMESTAMP,
+                last_error TEXT,
+                consecutive_errors INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -841,5 +1070,263 @@ impl LibraryDb {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn create_test_db() -> LibraryDb {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(5)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        LibraryDb::init_schema(&pool).await.unwrap();
+
+        LibraryDb { pool }
+    }
+
+    #[tokio::test]
+    async fn test_add_and_get_feed() {
+        let db = create_test_db().await;
+
+        let feed_id = db
+            .add_feed("Test Feed", "https://example.com/feed", Some("https://example.com"), Some("A test feed"), None)
+            .await
+            .unwrap();
+
+        assert!(feed_id > 0);
+
+        let feeds = db.get_feeds().await.unwrap();
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(feeds[0].title, "Test Feed");
+        assert_eq!(feeds[0].url, "https://example.com/feed");
+    }
+
+    #[tokio::test]
+    async fn test_delete_feed() {
+        let db = create_test_db().await;
+
+        let feed_id = db
+            .add_feed("Test Feed", "https://example.com/feed", None, None, None)
+            .await
+            .unwrap();
+
+        db.delete_feed(feed_id).await.unwrap();
+
+        let feeds = db.get_feeds().await.unwrap();
+        assert!(feeds.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_update_feed() {
+        let db = create_test_db().await;
+
+        let feed_id = db
+            .add_feed("Original", "https://example.com/feed", None, None, None)
+            .await
+            .unwrap();
+
+        db.update_feed(feed_id, "Updated", "https://example.com/updated", Some("https://example.com"), Some("Updated desc"), None)
+            .await
+            .unwrap();
+
+        let feeds = db.get_feeds().await.unwrap();
+        assert_eq!(feeds[0].title, "Updated");
+        assert_eq!(feeds[0].url, "https://example.com/updated");
+    }
+
+    #[tokio::test]
+    async fn test_feed_error_tracking() {
+        let db = create_test_db().await;
+
+        let feed_id = db
+            .add_feed("Test Feed", "https://example.com/feed", None, None, None)
+            .await
+            .unwrap();
+
+        db.record_feed_error(feed_id, "Network timeout").await.unwrap();
+
+        let stats = db.get_feed_stats(feed_id).await.unwrap().unwrap();
+        assert_eq!(stats.last_error, Some("Network timeout".to_string()));
+        assert_eq!(stats.consecutive_errors, 1);
+
+        db.record_feed_error(feed_id, "DNS failure").await.unwrap();
+
+        let stats = db.get_feed_stats(feed_id).await.unwrap().unwrap();
+        assert_eq!(stats.consecutive_errors, 2);
+
+        db.clear_feed_error(feed_id).await.unwrap();
+
+        let stats = db.get_feed_stats(feed_id).await.unwrap().unwrap();
+        assert_eq!(stats.last_error, None);
+        assert_eq!(stats.consecutive_errors, 0);
+    }
+
+    #[tokio::test]
+    async fn test_feed_stats() {
+        let db = create_test_db().await;
+
+        let feed_id = db
+            .add_feed("Test Feed", "https://example.com/feed", None, None, None)
+            .await
+            .unwrap();
+
+        db.add_article(feed_id, "Article 1", "https://example.com/1", None, None, None, None)
+            .await
+            .unwrap();
+        db.add_article(feed_id, "Article 2", "https://example.com/2", None, None, None, None)
+            .await
+            .unwrap();
+
+        let stats = db.get_feed_stats(feed_id).await.unwrap().unwrap();
+        assert_eq!(stats.total_articles, 2);
+        assert_eq!(stats.unread_count, 2);
+        assert_eq!(stats.starred_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_library_stats() {
+        let db = create_test_db().await;
+
+        let feed_id = db
+            .add_feed("Test Feed", "https://example.com/feed", None, None, None)
+            .await
+            .unwrap();
+
+        db.add_article(feed_id, "Article 1", "https://example.com/1", None, None, None, None)
+            .await
+            .unwrap();
+        db.add_article(feed_id, "Article 2", "https://example.com/2", None, None, None, None)
+            .await
+            .unwrap();
+
+        db.mark_article_read(1, true).await.unwrap();
+        db.star_article(2, true).await.unwrap();
+
+        let stats = db.get_library_stats().await.unwrap();
+        assert_eq!(stats.total_feeds, 1);
+        assert_eq!(stats.total_articles, 2);
+        assert_eq!(stats.total_unread, 1);
+        assert_eq!(stats.total_starred, 1);
+    }
+
+    #[tokio::test]
+    async fn test_delete_old_articles() {
+        let db = create_test_db().await;
+
+        let feed_id = db
+            .add_feed("Test Feed", "https://example.com/feed", None, None, None)
+            .await
+            .unwrap();
+
+        db.add_article(feed_id, "Article 1", "https://example.com/1", None, None, None, None)
+            .await
+            .unwrap();
+
+        let deleted = db.delete_old_articles(0, false).await.unwrap();
+        assert_eq!(deleted, 1);
+
+        let articles = db.get_all_articles(None).await.unwrap();
+        assert!(articles.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_mark_all_articles_read() {
+        let db = create_test_db().await;
+
+        let feed_id = db
+            .add_feed("Test Feed", "https://example.com/feed", None, None, None)
+            .await
+            .unwrap();
+
+        db.add_article(feed_id, "Article 1", "https://example.com/1", None, None, None, None)
+            .await
+            .unwrap();
+        db.add_article(feed_id, "Article 2", "https://example.com/2", None, None, None, None)
+            .await
+            .unwrap();
+
+        let marked = db.mark_all_articles_read(Some(feed_id)).await.unwrap();
+        assert_eq!(marked, 2);
+
+        let unread = db.get_unread_articles(None).await.unwrap();
+        assert!(unread.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_find_duplicate_articles() {
+        let db = create_test_db().await;
+
+        let feed_id = db
+            .add_feed("Test Feed", "https://example.com/feed", None, None, None)
+            .await
+            .unwrap();
+
+        db.add_article(feed_id, "Article 1", "https://example.com/dup", None, None, None, None)
+            .await
+            .unwrap();
+        db.add_article(feed_id, "Article 2", "https://example.com/dup", None, None, None, None)
+            .await
+            .unwrap();
+        db.add_article(feed_id, "Article 3", "https://example.com/unique", None, None, None, None)
+            .await
+            .unwrap();
+
+        let duplicates = db.find_duplicate_articles(feed_id).await.unwrap();
+        assert_eq!(duplicates.len(), 1);
+        assert_eq!(duplicates[0].1, "Article 2");
+    }
+
+    #[tokio::test]
+    async fn test_folder_operations() {
+        let db = create_test_db().await;
+
+        let folder_id = db.add_folder("Tech", None, 0).await.unwrap();
+        assert!(folder_id > 0);
+
+        let folders = db.get_folders().await.unwrap();
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].name, "Tech");
+
+        db.update_folder(folder_id, "Technology", None, 1).await.unwrap();
+        let folders = db.get_folders().await.unwrap();
+        assert_eq!(folders[0].name, "Technology");
+        assert_eq!(folders[0].sort_order, 1);
+
+        db.delete_folder(folder_id).await.unwrap();
+        let folders = db.get_folders().await.unwrap();
+        assert!(folders.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_tag_operations() {
+        let db = create_test_db().await;
+
+        let tag_id = db.add_tag("Important", Some("#ff0000")).await.unwrap();
+        assert!(tag_id > 0);
+
+        let feed_id = db
+            .add_feed("Test Feed", "https://example.com/feed", None, None, None)
+            .await
+            .unwrap();
+
+        let article_id = db
+            .add_article(feed_id, "Article 1", "https://example.com/1", None, None, None, None)
+            .await
+            .unwrap();
+
+        db.tag_article(article_id, tag_id).await.unwrap();
+
+        let tags = db.get_article_tags(article_id).await.unwrap();
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].name, "Important");
+
+        db.untag_article(article_id, tag_id).await.unwrap();
+        let tags = db.get_article_tags(article_id).await.unwrap();
+        assert!(tags.is_empty());
     }
 }

@@ -54,21 +54,18 @@ pub fn parse_opml(xml: &str) -> anyhow::Result<OpmlDocument> {
     let mut feeds = Vec::new();
 
     for child in body.children().filter(|n| n.is_element()) {
-        match child.tag_name().name() {
-            "outline" => {
-                if child.has_attribute("xmlUrl") {
-                    // It's a feed at the root level
-                    if let Some(feed) = parse_outline_feed(&child) {
-                        feeds.push(feed);
-                    }
-                } else {
-                    // It's a folder
-                    if let Some(folder) = parse_outline_folder(&child) {
-                        folders.push(folder);
-                    }
+        if child.tag_name().name() == "outline" {
+            if child.has_attribute("xmlUrl") {
+                // It's a feed at the root level
+                if let Some(feed) = parse_outline_feed(&child) {
+                    feeds.push(feed);
+                }
+            } else {
+                // It's a folder
+                if let Some(folder) = parse_outline_folder(&child) {
+                    folders.push(folder);
                 }
             }
-            _ => {}
         }
     }
 
@@ -104,10 +101,8 @@ fn parse_outline_folder(node: &roxmltree::Node) -> Option<OpmlFolder> {
 
     let mut feeds = Vec::new();
     for child in node.children().filter(|n| n.is_element()) {
-        if child.tag_name().name() == "outline" {
-            if let Some(feed) = parse_outline_feed(&child) {
-                feeds.push(feed);
-            }
+        if child.tag_name().name() == "outline" && let Some(feed) = parse_outline_feed(&child) {
+            feeds.push(feed);
         }
     }
 

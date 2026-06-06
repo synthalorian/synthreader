@@ -24,12 +24,20 @@ Thread reader / RSS aggregator. Rust + Tauri. Cross-platform desktop app.
 
 ## v0.3.0 — Organize
 
-- [ ] Folders for feed organization
-- [ ] Tags for articles
-- [ ] OPML import/export
-- [ ] Feed discovery (auto-detect from URL)
-- [ ] Article filtering (unread only, starred, by tag)
-- [ ] Custom themes (light/dark/synthwave)
+- [x] Folders for feed organization
+- [x] Tags for articles
+- [x] OPML import/export
+- [x] Feed discovery (auto-detect from URL)
+- [x] Article filtering (unread only, starred, by tag)
+- [x] Custom themes (light/dark/synthwave)
+
+## v0.4.0 — Polish
+
+- [ ] Feed health monitoring (track fetch errors, last success/failure)
+- [ ] Feed management (delete feed, edit feed properties, feed stats)
+- [ ] Article cleanup (bulk delete old articles, duplicate detection)
+- [ ] Code quality improvements and comprehensive tests
+- [ ] Error handling: structured feed fetch error tracking
 
 ## v1.0.0 — Ship It
 
