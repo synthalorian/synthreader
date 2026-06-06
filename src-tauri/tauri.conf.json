@@ -1,6 +1,6 @@
 {
   "productName": "Synthreader",
-  "version": "0.1.0",
+  "version": "0.7.0",
   "identifier": "io.synthalorian.synthreader",
   "build": {
     "frontendDist": "../frontend/dist",
@@ -29,13 +29,37 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb", "rpm", "appimage", "msi", "dmg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      }
+    },
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "10.13",
+      "signingIdentity": null,
+      "entitlements": null
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": ["https://releases.synthalorian.io/synthreader/{{target}}/{{arch}}/{{current_version}}"],
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk5NzU4NkQwQzY1QkU0NDEKUldRbUx0N1ZQaXJ0R2RqN1Z6d3FMZ1dMVEd0QnZ6Q3V5c1ZnNG1lZW9qOWtSUjdyeG9XcmxwTmQK"
+    }
   }
 }

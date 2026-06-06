@@ -1,6 +1,6 @@
 [package]
 name = "synthreader"
-version = "0.6.0"
+version = "0.7.0"
 description = "Synthwave '84 Ebook Reader"
 authors = ["synthalorian"]
 edition = "2024"

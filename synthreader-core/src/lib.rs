@@ -18,6 +18,11 @@ pub mod search;
 pub mod recommend;
 pub mod similarity;
 pub mod offline;
+pub mod keyboard;
+pub mod export;
+pub mod backup;
+pub mod notifications;
+pub mod settings;
 
 use serde::{Deserialize, Serialize};
 
@@ -82,9 +87,14 @@ pub use feed_parser::{ParsedFeed, ParsedArticle};
 pub use refresh::{FeedRefreshService, RefreshStats, RefreshProgress, run_refresh, run_refresh_with_progress};
 pub use readability::ExtractedContent;
 pub use article_fetcher::fetch_and_extract;
-pub use opml::{OpmlDocument, OpmlFeed, OpmlFolder, parse_opml, generate_opml, parse_pocket_opml};
+pub use opml::{OpmlDocument, OpmlFeed, OpmlFolder, parse_opml, generate_opml, parse_pocket_opml, parse_feedly_opml, parse_inoreader_opml, parse_newsblur_opml};
 pub use discovery::{DiscoveredFeed, discover_feeds};
 pub use search::{highlight_text, highlight_text_multi, extract_snippets, tokenize};
 pub use recommend::{recommend_feeds, FeedRecommendation, CandidateFeed};
 pub use similarity::{find_related_articles, RelatedArticle};
 pub use offline::{check_connectivity, ConnectivityStatus, CacheStatus, calculate_cache_status, is_article_offline_ready};
+pub use keyboard::KeyboardShortcuts;
+pub use export::{export_article_to_markdown, export_articles_to_markdown, export_articles_to_opml};
+pub use backup::{backup_database, restore_database, list_backups, delete_backup, cleanup_old_backups, BackupResult, RestoreResult};
+pub use notifications::{NotificationSettings, ArticleNotification, NotificationSummary, format_notification_message, format_notification_body};
+pub use settings::SettingsManager;

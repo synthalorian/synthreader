@@ -49,7 +49,7 @@ Thread reader / RSS aggregator. Rust + Tauri. Cross-platform desktop app.
 - [x] Quick filter bar — search feeds and articles in real-time
 - [x] Import from Pocket/Instapaper OPML exports
 
-## v0.6.0 — Frontend & Polish
+## v0.6.0 — Frontend & Polish (Complete)
 
 - [x] Tauri frontend: article list view with virtual scrolling
 - [x] Article reader view — clean, distraction-free reading
@@ -59,6 +59,17 @@ Thread reader / RSS aggregator. Rust + Tauri. Cross-platform desktop app.
 - [x] Offline mode — read cached articles without internet
 - [x] Auto-refresh feeds on startup with progress indicator
 - [x] Performance: smooth scrolling with 10k+ articles
+
+## v0.7.0 — Pre-Release Polish (Complete)
+
+- [x] Cross-platform builds — Linux, Windows, macOS via Tauri
+- [x] Auto-updater — Tauri updater with signature verification
+- [x] Keyboard shortcuts config — user-customizable keybindings
+- [x] Article sharing — export to Markdown, PDF, email
+- [x] Notification system — desktop notifications for new articles
+- [x] Import from more sources — Feedly, Inoreader, NewsBlur
+- [x] Data export — full database backup/restore
+- [x] Onboarding flow — first-run tutorial for new users
 
 ## v1.0.0 — Ship It
 

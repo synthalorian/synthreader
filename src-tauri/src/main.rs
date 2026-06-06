@@ -93,7 +93,22 @@ fn main() {
             delete_article,
             delete_old_articles,
             mark_all_articles_read,
-            find_duplicate_articles
+            find_duplicate_articles,
+            get_keyboard_shortcuts,
+            set_keyboard_shortcuts,
+            get_notification_settings,
+            set_notification_settings,
+            export_article_markdown,
+            export_articles_markdown,
+            backup_database_cmd,
+            list_backups_cmd,
+            restore_database_cmd,
+            delete_backup_cmd,
+            import_feedly_opml,
+            import_inoreader_opml,
+            import_newsblur_opml,
+            is_first_run,
+            set_first_run_complete
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1017,4 +1032,153 @@ async fn get_chapter_content(
     let path = PathBuf::from(&file_path);
     synthreader_core::formats::epub::get_chapter_content(&path, &href)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_keyboard_shortcuts(app: tauri::AppHandle) -> Result<synthreader_core::KeyboardShortcuts, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    let db = synthreader_core::db::LibraryDb::open(&db_path).await.map_err(|e| e.to_string())?;
+    let manager = synthreader_core::SettingsManager::new(&db);
+    manager.get_keyboard_shortcuts().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_keyboard_shortcuts(app: tauri::AppHandle, shortcuts: synthreader_core::KeyboardShortcuts) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    let db = synthreader_core::db::LibraryDb::open(&db_path).await.map_err(|e| e.to_string())?;
+    let manager = synthreader_core::SettingsManager::new(&db);
+    manager.set_keyboard_shortcuts(&shortcuts).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_notification_settings(app: tauri::AppHandle) -> Result<synthreader_core::NotificationSettings, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    let db = synthreader_core::db::LibraryDb::open(&db_path).await.map_err(|e| e.to_string())?;
+    let manager = synthreader_core::SettingsManager::new(&db);
+    manager.get_notification_settings().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_notification_settings(app: tauri::AppHandle, settings: synthreader_core::NotificationSettings) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    let db = synthreader_core::db::LibraryDb::open(&db_path).await.map_err(|e| e.to_string())?;
+    let manager = synthreader_core::SettingsManager::new(&db);
+    manager.set_notification_settings(&settings).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn export_article_markdown(app: tauri::AppHandle, article_id: i64) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    let db = synthreader_core::db::LibraryDb::open(&db_path).await.map_err(|e| e.to_string())?;
+    let article = db.get_article(article_id).await.map_err(|e| e.to_string())?.ok_or("Article not found")?;
+    Ok(synthreader_core::export_article_to_markdown(&article))
+}
+
+#[tauri::command]
+async fn export_articles_markdown(app: tauri::AppHandle, article_ids: Vec<i64>) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    let db = synthreader_core::db::LibraryDb::open(&db_path).await.map_err(|e| e.to_string())?;
+    let mut articles = Vec::new();
+    for id in article_ids {
+        if let Some(article) = db.get_article(id).await.map_err(|e| e.to_string())? {
+            articles.push(article);
+        }
+    }
+    Ok(synthreader_core::export_articles_to_markdown(&articles))
+}
+
+#[tauri::command]
+async fn backup_database_cmd(app: tauri::AppHandle) -> Result<synthreader_core::BackupResult, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    synthreader_core::backup_database(&db_path).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn list_backups_cmd(app: tauri::AppHandle) -> Result<Vec<synthreader_core::BackupResult>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    synthreader_core::list_backups(&db_path).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn restore_database_cmd(app: tauri::AppHandle, backup_path: String) -> Result<synthreader_core::RestoreResult, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    let backup = std::path::PathBuf::from(backup_path);
+    synthreader_core::restore_database(&db_path, &backup).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_backup_cmd(_app: tauri::AppHandle, backup_path: String) -> Result<(), String> {
+    let path = std::path::PathBuf::from(backup_path);
+    synthreader_core::delete_backup(&path).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn import_feedly_opml(app: tauri::AppHandle, xml_content: String) -> Result<serde_json::Value, String> {
+    let doc = synthreader_core::parse_feedly_opml(&xml_content).map_err(|e| e.to_string())?;
+    import_opml_document(app, doc).await
+}
+
+#[tauri::command]
+async fn import_inoreader_opml(app: tauri::AppHandle, xml_content: String) -> Result<serde_json::Value, String> {
+    let doc = synthreader_core::parse_inoreader_opml(&xml_content).map_err(|e| e.to_string())?;
+    import_opml_document(app, doc).await
+}
+
+#[tauri::command]
+async fn import_newsblur_opml(app: tauri::AppHandle, xml_content: String) -> Result<serde_json::Value, String> {
+    let doc = synthreader_core::parse_newsblur_opml(&xml_content).map_err(|e| e.to_string())?;
+    import_opml_document(app, doc).await
+}
+
+async fn import_opml_document(app: tauri::AppHandle, doc: synthreader_core::OpmlDocument) -> Result<serde_json::Value, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    let db = synthreader_core::db::LibraryDb::open(&db_path).await.map_err(|e| e.to_string())?;
+    let mut imported_feeds = 0;
+    let mut imported_folders = 0;
+    let mut errors = Vec::new();
+    for folder in &doc.folders {
+        let folder_id = db.add_folder(&folder.title, None, imported_folders).await.map_err(|e| e.to_string())?;
+        imported_folders += 1;
+        for feed in &folder.feeds {
+            match db.add_feed(&feed.title, &feed.url, feed.site_url.as_deref(), None, Some(folder_id)).await {
+                Ok(_) => imported_feeds += 1,
+                Err(e) => errors.push(format!("Failed to import feed '{}': {}", feed.title, e)),
+            }
+        }
+    }
+    for feed in &doc.feeds {
+        match db.add_feed(&feed.title, &feed.url, feed.site_url.as_deref(), None, None).await {
+            Ok(_) => imported_feeds += 1,
+            Err(e) => errors.push(format!("Failed to import feed '{}': {}", feed.title, e)),
+        }
+    }
+    Ok(serde_json::json!({ "imported_feeds": imported_feeds, "imported_folders": imported_folders, "errors": errors }))
+}
+
+#[tauri::command]
+async fn is_first_run(app: tauri::AppHandle) -> Result<bool, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    let db = synthreader_core::db::LibraryDb::open(&db_path).await.map_err(|e| e.to_string())?;
+    let manager = synthreader_core::SettingsManager::new(&db);
+    manager.is_first_run().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_first_run_complete(app: tauri::AppHandle) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+    let db = synthreader_core::db::LibraryDb::open(&db_path).await.map_err(|e| e.to_string())?;
+    let manager = synthreader_core::SettingsManager::new(&db);
+    manager.set_first_run_complete().await.map_err(|e| e.to_string())
 }
