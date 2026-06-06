@@ -227,6 +227,83 @@ impl LibraryDb {
         Ok(articles)
     }
 
+    pub async fn get_all_articles(
+        &self,
+        limit: Option<i64>,
+    ) -> anyhow::Result<Vec<Article>> {
+        let limit = limit.unwrap_or(500);
+        let articles = sqlx::query_as::<_, Article>(
+            r#"
+            SELECT id, feed_id, title, url, content, summary, author, published_at, read, starred, created_at
+            FROM articles
+            ORDER BY published_at DESC NULLS LAST, created_at DESC
+            LIMIT ?1
+            "#
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(articles)
+    }
+
+    pub async fn get_article(&self, article_id: i64) -> anyhow::Result<Option<Article>> {
+        let article = sqlx::query_as::<_, Article>(
+            r#"
+            SELECT id, feed_id, title, url, content, summary, author, published_at, read, starred, created_at
+            FROM articles
+            WHERE id = ?1
+            "#
+        )
+        .bind(article_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(article)
+    }
+
+    pub async fn search_articles(
+        &self,
+        query: &str,
+        limit: Option<i64>,
+    ) -> anyhow::Result<Vec<Article>> {
+        let limit = limit.unwrap_or(100);
+        let search_query = format!("{}*", query);
+
+        let articles = sqlx::query_as::<_, Article>(
+            r#"
+            SELECT a.id, a.feed_id, a.title, a.url, a.content, a.summary, a.author, a.published_at, a.read, a.starred, a.created_at
+            FROM articles_fts fts
+            JOIN articles a ON a.id = fts.rowid
+            WHERE articles_fts MATCH ?1
+            ORDER BY rank
+            LIMIT ?2
+            "#
+        )
+        .bind(search_query)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(articles)
+    }
+
+    pub async fn update_article_content(
+        &self,
+        article_id: i64,
+        content: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE articles SET content = ?1 WHERE id = ?2"
+        )
+        .bind(content)
+        .bind(article_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn mark_article_read(
         &self,
         article_id: i64,
@@ -528,10 +605,47 @@ impl LibraryDb {
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
+                title, content,
+                content='articles',
+                content_rowid='id'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS articles_fts_insert AFTER INSERT ON articles BEGIN
+                INSERT INTO articles_fts(rowid, title, content)
+                VALUES (new.id, new.title, COALESCE(new.content, ''));
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS articles_fts_delete AFTER DELETE ON articles BEGIN
+                INSERT INTO articles_fts(articles_fts, rowid, title, content)
+                VALUES ('delete', old.id, old.title, COALESCE(old.content, ''));
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS articles_fts_update AFTER UPDATE ON articles BEGIN
+                INSERT INTO articles_fts(articles_fts, rowid, title, content)
+                VALUES ('delete', old.id, old.title, COALESCE(old.content, ''));
+                INSERT INTO articles_fts(rowid, title, content)
+                VALUES (new.id, new.title, COALESCE(new.content, ''));
+            END;
             "#
         )
         .execute(pool)
         .await?;
+
+        // Populate FTS index if empty (first run or migration)
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM articles_fts")
+            .fetch_one(pool)
+            .await?;
+
+        if count == 0 {
+            sqlx::query(
+                "INSERT INTO articles_fts(rowid, title, content)
+                 SELECT id, title, COALESCE(content, '') FROM articles"
+            )
+            .execute(pool)
+            .await?;
+        }
 
         Ok(())
     }

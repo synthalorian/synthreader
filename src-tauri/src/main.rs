@@ -54,8 +54,12 @@ fn main() {
             add_feed,
             get_feeds,
             get_articles,
+            get_all_articles,
+            get_article,
             mark_article_read,
             star_article,
+            search_articles,
+            extract_article_content,
             refresh_feeds,
             get_system_fonts,
             get_book_chapters,
@@ -128,6 +132,40 @@ async fn get_articles(
 }
 
 #[tauri::command]
+async fn get_all_articles(
+    app: tauri::AppHandle,
+    limit: Option<i64>,
+) -> Result<Vec<synthreader_core::Article>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_all_articles(limit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_article(
+    app: tauri::AppHandle,
+    article_id: i64,
+) -> Result<Option<synthreader_core::Article>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_article(article_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn mark_article_read(
     app: tauri::AppHandle,
     article_id: i64,
@@ -161,6 +199,48 @@ async fn star_article(
     db.star_article(article_id, starred)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn search_articles(
+    app: tauri::AppHandle,
+    query: String,
+    limit: Option<i64>,
+) -> Result<Vec<synthreader_core::Article>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.search_articles(&query, limit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn extract_article_content(
+    app: tauri::AppHandle,
+    article_id: i64,
+    url: String,
+) -> Result<synthreader_core::ExtractedContent, String> {
+    let extracted = synthreader_core::fetch_and_extract(&url)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.update_article_content(article_id, Some(&extracted.content))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(extracted)
 }
 
 #[tauri::command]
