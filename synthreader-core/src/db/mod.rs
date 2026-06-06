@@ -11,6 +11,11 @@ impl LibraryDb {
     pub(crate) fn pool(&self) -> &SqlitePool {
         &self.pool
     }
+
+    #[cfg(test)]
+    pub(crate) fn from_pool(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -22,6 +27,9 @@ pub struct BookRow {
 
 impl LibraryDb {
     pub async fn open(path: &Path) -> anyhow::Result<Self> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let url = format!("sqlite:{}", path.display());
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
@@ -877,7 +885,7 @@ impl LibraryDb {
         Ok(path)
     }
 
-    async fn init_schema(pool: &SqlitePool) -> anyhow::Result<()> {
+    pub(crate) async fn init_schema(pool: &SqlitePool) -> anyhow::Result<()> {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS books (
