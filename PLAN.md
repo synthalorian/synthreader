@@ -71,14 +71,14 @@ Thread reader / RSS aggregator. Rust + Tauri. Cross-platform desktop app.
 - [x] Data export — full database backup/restore
 - [x] Onboarding flow — first-run tutorial for new users
 
-## v1.0.0 — Ship It
+## v1.0.0 — Ship It (Complete)
 
-- [ ] All tests pass, CI green
-- [ ] Cross-platform builds: Linux, Windows, macOS
-- [ ] Auto-updater (Tauri updater)
-- [ ] Performance: 10k+ articles, smooth scrolling
-- [ ] Documentation + onboarding
-- [ ] App store distribution
+- [x] All tests pass, CI green
+- [x] Cross-platform builds: Linux, Windows, macOS
+- [x] Auto-updater (Tauri updater)
+- [x] Performance: 10k+ articles, smooth scrolling
+- [x] Documentation + onboarding
+- [x] App store distribution
 
 ---
 
