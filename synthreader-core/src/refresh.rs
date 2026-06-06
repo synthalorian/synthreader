@@ -44,6 +44,54 @@ impl FeedRefreshService {
         Ok(())
     }
 
+    /// Refresh all feeds with progress reporting.
+    pub async fn refresh_all_with_progress(
+        &self,
+        progress_callback: impl Fn(RefreshProgress),
+    ) -> anyhow::Result<RefreshStats> {
+        let feeds = self.db.get_feeds().await?;
+        let total_feeds = feeds.len();
+        info!("Refreshing {} feeds", total_feeds);
+
+        let mut total_new = 0;
+        let mut errors = 0;
+
+        for (index, feed) in feeds.iter().enumerate() {
+            progress_callback(RefreshProgress {
+                current_feed: feed.title.clone(),
+                current_index: index + 1,
+                total_feeds,
+                status: RefreshStatus::InProgress,
+            });
+
+            match self.refresh_feed(feed.id, &feed.url).await {
+                Ok(new_count) => {
+                    total_new += new_count;
+                    info!("Feed '{}' refreshed, {} new articles", feed.title, new_count);
+                    if let Err(e) = self.db.clear_feed_error(feed.id).await {
+                        warn!("Failed to clear error for feed '{}': {}", feed.title, e);
+                    }
+                }
+                Err(e) => {
+                    errors += 1;
+                    warn!("Failed to refresh feed '{}': {}", feed.title, e);
+                    if let Err(db_err) = self.db.record_feed_error(feed.id, &e.to_string()).await {
+                        warn!("Failed to record error for feed '{}': {}", feed.title, db_err);
+                    }
+                }
+            }
+        }
+
+        progress_callback(RefreshProgress {
+            current_feed: String::new(),
+            current_index: total_feeds,
+            total_feeds,
+            status: RefreshStatus::Complete,
+        });
+
+        Ok(RefreshStats { total_new, errors })
+    }
+
     /// Refresh a single feed by ID and URL.
     async fn refresh_feed(
         &self,
@@ -98,6 +146,69 @@ impl FeedRefreshService {
             }
         })
     }
+
+    /// Auto-refresh feeds on startup with progress reporting.
+    ///
+    /// Checks connectivity first, then refreshes all feeds if online.
+    pub async fn auto_refresh_on_startup(
+        &self,
+        progress_callback: impl Fn(RefreshProgress),
+    ) -> anyhow::Result<AutoRefreshResult> {
+        let connectivity = crate::offline::check_connectivity().await;
+
+        match connectivity {
+            crate::offline::ConnectivityStatus::Online => {
+                let stats = self.refresh_all_with_progress(progress_callback).await?;
+                Ok(AutoRefreshResult {
+                    connectivity,
+                    stats,
+                    skipped: false,
+                })
+            }
+            crate::offline::ConnectivityStatus::Offline => {
+                info!("Skipping auto-refresh: device is offline");
+                Ok(AutoRefreshResult {
+                    connectivity,
+                    stats: RefreshStats { total_new: 0, errors: 0 },
+                    skipped: true,
+                })
+            }
+            crate::offline::ConnectivityStatus::Unknown => {
+                warn!("Connectivity unknown, attempting refresh anyway");
+                let stats = self.refresh_all_with_progress(progress_callback).await?;
+                Ok(AutoRefreshResult {
+                    connectivity,
+                    stats,
+                    skipped: false,
+                })
+            }
+        }
+    }
+}
+
+/// Progress information during a feed refresh operation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RefreshProgress {
+    pub current_feed: String,
+    pub current_index: usize,
+    pub total_feeds: usize,
+    pub status: RefreshStatus,
+}
+
+/// Status of a refresh operation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub enum RefreshStatus {
+    InProgress,
+    Complete,
+    Error,
+}
+
+/// Result of an auto-refresh on startup.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AutoRefreshResult {
+    pub connectivity: crate::offline::ConnectivityStatus,
+    pub stats: RefreshStats,
+    pub skipped: bool,
 }
 
 /// Convenience: run a one-off refresh and return stats.
@@ -117,7 +228,16 @@ pub async fn run_refresh(db: Arc<LibraryDb>) -> anyhow::Result<RefreshStats> {
     Ok(RefreshStats { total_new, errors })
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+/// Run a one-off refresh with progress reporting.
+pub async fn run_refresh_with_progress(
+    db: Arc<LibraryDb>,
+    progress_callback: impl Fn(RefreshProgress),
+) -> anyhow::Result<RefreshStats> {
+    let service = FeedRefreshService::new(db);
+    service.refresh_all_with_progress(progress_callback).await
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RefreshStats {
     pub total_new: usize,
     pub errors: usize,

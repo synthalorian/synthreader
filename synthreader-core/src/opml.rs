@@ -20,6 +20,121 @@ pub struct OpmlDocument {
     pub feeds: Vec<OpmlFeed>,
 }
 
+/// Parse Pocket or Instapaper OPML export.
+///
+/// Pocket and Instapaper exports use slightly different conventions:
+/// - They may use `type="link"` for bookmarks
+/// - They may use `url` instead of `xmlUrl` for some entries
+/// - Tags/folders are often represented as parent outlines
+///
+/// This function normalizes these formats into our standard OpmlDocument.
+pub fn parse_pocket_opml(xml: &str) -> anyhow::Result<OpmlDocument> {
+    let doc = roxmltree::Document::parse(xml)?;
+    let root = doc.root_element();
+
+    let opml_elem = if root.tag_name().name() == "opml" {
+        root
+    } else {
+        root.children()
+            .find(|n| n.is_element() && n.tag_name().name() == "opml")
+            .ok_or_else(|| anyhow::anyhow!("No <opml> root element found"))?
+    };
+
+    let head = opml_elem
+        .children()
+        .find(|n| n.is_element() && n.tag_name().name() == "head");
+
+    let title = head
+        .and_then(|h| {
+            h.children()
+                .find(|n| n.is_element() && n.tag_name().name() == "title")
+        })
+        .and_then(|t| t.text())
+        .unwrap_or("Pocket Export")
+        .to_string();
+
+    let body = opml_elem
+        .children()
+        .find(|n| n.is_element() && n.tag_name().name() == "body")
+        .ok_or_else(|| anyhow::anyhow!("No <body> element found"))?;
+
+    let mut folders = Vec::new();
+    let mut feeds = Vec::new();
+
+    for child in body.children().filter(|n| n.is_element()) {
+        if child.tag_name().name() == "outline" {
+            let outline_type = child.attribute("type").unwrap_or("");
+            
+            if outline_type == "link" || child.has_attribute("url") {
+                if let Some(feed) = parse_pocket_outline_feed(&child) {
+                    feeds.push(feed);
+                }
+            } else if child.has_attribute("xmlUrl") {
+                if let Some(feed) = parse_outline_feed(&child) {
+                    feeds.push(feed);
+                }
+            } else {
+                if let Some(folder) = parse_pocket_outline_folder(&child)
+                    && !folder.feeds.is_empty()
+                {
+                    folders.push(folder);
+                }
+            }
+        }
+    }
+
+    Ok(OpmlDocument {
+        title,
+        folders,
+        feeds,
+    })
+}
+
+fn parse_pocket_outline_feed(node: &roxmltree::Node) -> Option<OpmlFeed> {
+    let url = node.attribute("xmlUrl")
+        .or_else(|| node.attribute("url"))?;
+    
+    let title = node
+        .attribute("text")
+        .or_else(|| node.attribute("title"))
+        .unwrap_or(url)
+        .to_string();
+    
+    let site_url = node.attribute("htmlUrl")
+        .or_else(|| node.attribute("url"))
+        .map(String::from);
+
+    Some(OpmlFeed {
+        title,
+        url: url.to_string(),
+        site_url,
+    })
+}
+
+fn parse_pocket_outline_folder(node: &roxmltree::Node) -> Option<OpmlFolder> {
+    let title = node
+        .attribute("text")
+        .or_else(|| node.attribute("title"))
+        .unwrap_or("Untitled")
+        .to_string();
+
+    let mut feeds = Vec::new();
+    for child in node.children().filter(|n| n.is_element()) {
+        if child.tag_name().name() == "outline" {
+            let outline_type = child.attribute("type").unwrap_or("");
+            if outline_type == "link" || child.has_attribute("url") {
+                if let Some(feed) = parse_pocket_outline_feed(&child) {
+                    feeds.push(feed);
+                }
+            } else if let Some(feed) = parse_outline_feed(&child) {
+                feeds.push(feed);
+            }
+        }
+    }
+
+    Some(OpmlFolder { title, feeds })
+}
+
 pub fn parse_opml(xml: &str) -> anyhow::Result<OpmlDocument> {
     let doc = roxmltree::Document::parse(xml)?;
     let root = doc.root_element();
@@ -222,5 +337,71 @@ mod tests {
         assert!(xml.contains("xmlUrl=\"https://hnrss.org/frontpage\""));
         assert!(xml.contains("htmlUrl=\"https://news.ycombinator.com\""));
         assert!(xml.contains("xmlUrl=\"https://xkcd.com/rss.xml\""));
+    }
+
+    #[test]
+    fn test_parse_pocket_opml() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<opml version="1.0">
+  <head>
+    <title>Pocket Export</title>
+  </head>
+  <body>
+    <outline text="Unread" title="Unread">
+      <outline text="Rust Blog" title="Rust Blog" type="rss" xmlUrl="https://blog.rust-lang.org/feed.xml" htmlUrl="https://blog.rust-lang.org" />
+      <outline text="Example Bookmark" title="Example Bookmark" type="link" url="https://example.com" />
+    </outline>
+    <outline text="Articles" title="Articles">
+      <outline text="Tech News" title="Tech News" type="link" url="https://technews.com" />
+    </outline>
+    <outline text="Direct Feed" title="Direct Feed" type="rss" xmlUrl="https://direct.com/feed.xml" />
+  </body>
+</opml>
+"#;
+
+        let doc = parse_pocket_opml(xml).unwrap();
+        assert_eq!(doc.title, "Pocket Export");
+        assert_eq!(doc.folders.len(), 2);
+        
+        let unread_folder = &doc.folders[0];
+        assert_eq!(unread_folder.title, "Unread");
+        assert_eq!(unread_folder.feeds.len(), 2);
+        assert_eq!(unread_folder.feeds[0].title, "Rust Blog");
+        assert_eq!(unread_folder.feeds[0].url, "https://blog.rust-lang.org/feed.xml");
+        assert_eq!(unread_folder.feeds[1].title, "Example Bookmark");
+        assert_eq!(unread_folder.feeds[1].url, "https://example.com");
+        
+        let articles_folder = &doc.folders[1];
+        assert_eq!(articles_folder.title, "Articles");
+        assert_eq!(articles_folder.feeds.len(), 1);
+        assert_eq!(articles_folder.feeds[0].url, "https://technews.com");
+        
+        assert_eq!(doc.feeds.len(), 1);
+        assert_eq!(doc.feeds[0].title, "Direct Feed");
+        assert_eq!(doc.feeds[0].url, "https://direct.com/feed.xml");
+    }
+
+    #[test]
+    fn test_parse_instapaper_opml() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<opml version="1.0">
+  <head>
+    <title>Instapaper: Starred</title>
+  </head>
+  <body>
+    <outline text="Starred" title="Starred">
+      <outline text="Hacker News" title="Hacker News" type="rss" xmlUrl="https://news.ycombinator.com/rss" htmlUrl="https://news.ycombinator.com" />
+      <outline text="Saved Link" title="Saved Link" type="link" url="https://saved.com/article" />
+    </outline>
+  </body>
+</opml>
+"#;
+
+        let doc = parse_pocket_opml(xml).unwrap();
+        assert!(doc.title.contains("Instapaper"));
+        assert_eq!(doc.folders.len(), 1);
+        assert_eq!(doc.folders[0].feeds.len(), 2);
+        assert_eq!(doc.folders[0].feeds[0].url, "https://news.ycombinator.com/rss");
+        assert_eq!(doc.folders[0].feeds[1].url, "https://saved.com/article");
     }
 }
