@@ -11,7 +11,50 @@ interface Book {
   progress: number
 }
 
+interface Feed {
+  id: number
+  title: string
+  url: string
+  site_url?: string
+}
+
+interface Article {
+  id: number
+  feed_id: number
+  title: string
+  url: string
+  content?: string
+  summary?: string
+  author?: string
+  published_at?: string
+  read: boolean
+  starred: boolean
+  created_at: string
+}
+
+interface ExtractedContent {
+  title?: string
+  content: string
+  text_content: string
+  author?: string
+  excerpt?: string
+  site_name?: string
+  lang?: string
+  published_time?: string
+}
+
+type View = 'books' | 'articles' | 'reader'
+type ArticleFilter = 'all' | 'unread' | 'starred'
+
 let books: Book[] = []
+let feeds: Feed[] = []
+let articles: Article[] = []
+let currentView: View = 'articles'
+let articleFilter: ArticleFilter = 'all'
+let selectedArticleIndex = -1
+let searchQuery = ''
+let currentArticle: Article | null = null
+let extractedContent: ExtractedContent | null = null
 
 function renderApp() {
   const app = document.getElementById('app')!
@@ -23,88 +66,563 @@ function renderApp() {
         </div>
         <nav class="sidebar-nav">
           <div class="nav-section">
+            <h3 class="nav-title">Feeds</h3>
+            <a href="#" class="nav-item ${currentView === 'articles' ? 'active' : ''}" data-view="articles">
+              <span>✍️</span> Articles <span class="count" id="count-articles">0</span>
+            </a>
+            <a href="#" class="nav-item" data-view="feeds">
+              <span>📡</span> Feeds <span class="count" id="count-feeds">0</span>
+            </a>
+          </div>
+          <div class="nav-section">
             <h3 class="nav-title">Library</h3>
-            <a href="#" class="nav-item active" data-filter="all">
+            <a href="#" class="nav-item ${currentView === 'books' ? 'active' : ''}" data-view="books">
               <span>📚</span> All Books <span class="count" id="count-all">0</span>
-            </a>
-            <a href="#" class="nav-item" data-filter="reading">
-              <span>📖</span> Reading <span class="count" id="count-reading">0</span>
-            </a>
-            <a href="#" class="nav-item" data-filter="finished">
-              <span>✅</span> Finished <span class="count" id="count-finished">0</span>
-            </a>
-            <a href="#" class="nav-item" data-filter="want">
-              <span>🔖</span> Want to Read <span class="count" id="count-want">0</span>
             </a>
           </div>
         </nav>
       </aside>
-      <main class="main-content">
-        <header class="top-bar">
-          <div class="search-box">
-            <input type="text" id="search-input" placeholder="Search your library..." />
-          </div>
-          <div class="actions">
-            <button class="btn-neon" id="add-books-btn">+ Add Books</button>
-          </div>
-        </header>
-        <div class="content-area" id="content-area">
-          <div class="empty-state" id="empty-state">
-            <div class="empty-icon">📚</div>
-            <h2>Your library is empty</h2>
-            <p>Drop ebook files here or click "Add Books" to get started</p>
-            <button class="btn-neon" id="empty-add-btn">Add Books</button>
-          </div>
-          <div class="book-grid" id="book-grid"></div>
-        </div>
+      <main class="main-content" id="main-content">
+        ${renderMainContent()}
       </main>
+    </div>
+    <div class="keyboard-hint" id="keyboard-hint">
+      <kbd>j</kbd> down <kbd>k</kbd> up <kbd>o</kbd> open <kbd>r</kbd> read <kbd>s</kbd> star <kbd>/</kbd> search <kbd>esc</kbd> close
     </div>
   `
 
   setupEventListeners()
-  loadBooks()
+  loadData()
+}
+
+function renderMainContent(): string {
+  if (currentView === 'books') {
+    return renderBooksView()
+  } else if (currentView === 'articles') {
+    return renderArticlesView()
+  }
+  return ''
+}
+
+function renderBooksView(): string {
+  return `
+    <header class="top-bar">
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="Search your library..." />
+      </div>
+      <div class="actions">
+        <button class="btn-neon" id="add-books-btn">+ Add Books</button>
+      </div>
+    </header>
+    <div class="content-area" id="content-area">
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon">📚</div>
+        <h2>Your library is empty</h2>
+        <p>Drop ebook files here or click "Add Books" to get started</p>
+        <button class="btn-neon" id="empty-add-btn">Add Books</button>
+      </div>
+      <div class="book-grid" id="book-grid"></div>
+    </div>
+  `
+}
+
+function renderArticlesView(): string {
+  return `
+    <header class="top-bar">
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="Search articles... (press / to focus)" value="${escapeHtml(searchQuery)}" />
+      </div>
+      <div class="actions">
+        <button class="btn-neon" id="add-feed-btn">+ Add Feed</button>
+        <button class="btn-neon" id="refresh-feeds-btn" style="margin-left: 8px">↻ Refresh</button>
+      </div>
+    </header>
+    <div class="content-area" id="content-area">
+      <div class="feed-form" id="feed-form" style="display: none;">
+        <input type="text" id="feed-url-input" placeholder="Enter feed URL..." />
+        <button class="btn-neon" id="submit-feed-btn">Add</button>
+        <button class="reader-btn" id="cancel-feed-btn">Cancel</button>
+      </div>
+      <div class="filter-tabs" id="filter-tabs">
+        <button class="filter-tab ${articleFilter === 'all' ? 'active' : ''}" data-filter="all">All</button>
+        <button class="filter-tab ${articleFilter === 'unread' ? 'active' : ''}" data-filter="unread">Unread</button>
+        <button class="filter-tab ${articleFilter === 'starred' ? 'active' : ''}" data-filter="starred">Starred</button>
+      </div>
+      <div class="article-list" id="article-list"></div>
+      <div class="empty-state" id="empty-state" style="display: none;">
+        <div class="empty-icon">✍️</div>
+        <h2>No articles yet</h2>
+        <p>Add feeds to start collecting articles</p>
+      </div>
+    </div>
+  `
+}
+
+function renderReaderView(): string {
+  if (!currentArticle || !extractedContent) return ''
+
+  const meta = []
+  if (extractedContent.site_name || currentArticle.author) {
+    meta.push(`<span>${escapeHtml(extractedContent.site_name || currentArticle.author || '')}</span>`)
+  }
+  if (currentArticle.published_at) {
+    meta.push(`<span>${formatDate(currentArticle.published_at)}</span>`)
+  }
+  meta.push(`<a href="${escapeHtml(currentArticle.url)}" target="_blank" rel="noopener">Original ↗</a>`)
+
+  return `
+    <div class="reader-overlay" id="reader-overlay">
+      <header class="reader-header">
+        <span class="reader-title">${escapeHtml(currentArticle.title)}</span>
+        <div class="reader-actions">
+          <button class="reader-btn" id="reader-star-btn">${currentArticle.starred ? '★' : '☆'} Star</button>
+          <button class="reader-btn" id="reader-mark-read-btn">${currentArticle.read ? 'Mark Unread' : 'Mark Read'}</button>
+          <button class="reader-btn" id="reader-close-btn">Close ×</button>
+        </div>
+      </header>
+      <div class="reader-content">
+        <article class="reader-article">
+          <div class="reader-meta-bar">
+            ${meta.join(' <span>|</span> ')}
+          </div>
+          <h1>${escapeHtml(extractedContent.title || currentArticle.title)}</h1>
+          ${extractedContent.content}
+        </article>
+      </div>
+    </div>
+  `
+}
+
+function renderArticleList() {
+  const list = document.getElementById('article-list')
+  const emptyState = document.getElementById('empty-state')
+  if (!list || !emptyState) return
+
+  let filtered = articles
+
+  if (articleFilter === 'unread') {
+    filtered = articles.filter(a => !a.read)
+  } else if (articleFilter === 'starred') {
+    filtered = articles.filter(a => a.starred)
+  }
+
+  if (searchQuery.trim()) {
+    const q = searchQuery.toLowerCase()
+    filtered = filtered.filter(a =>
+      a.title.toLowerCase().includes(q) ||
+      (a.summary && a.summary.toLowerCase().includes(q)) ||
+      (a.author && a.author.toLowerCase().includes(q))
+    )
+  }
+
+  if (filtered.length === 0) {
+    list.style.display = 'none'
+    emptyState.style.display = 'flex'
+    return
+  }
+
+  list.style.display = 'flex'
+  emptyState.style.display = 'none'
+
+  const feedMap = new Map(feeds.map(f => [f.id, f]))
+
+  list.innerHTML = filtered.map((article, index) => {
+    const feed = feedMap.get(article.feed_id)
+    const isSelected = index === selectedArticleIndex
+    return `
+      <div class="article-item ${article.read ? 'read' : ''} ${isSelected ? 'selected' : ''}" data-id="${article.id}" data-index="${index}">
+        <span class="article-star ${article.starred ? 'starred' : ''}" data-id="${article.id}" data-action="star">
+          ${article.starred ? '★' : '☆'}
+        </span>
+        <div class="article-content" data-id="${article.id}" data-action="open">
+          <div class="article-title">${escapeHtml(article.title)}</div>
+          <div class="article-meta">
+            <span class="feed-name">${escapeHtml(feed?.title || 'Unknown Feed')}</span>
+            ${article.author ? `<span class="author">by ${escapeHtml(article.author)}</span>` : ''}
+            <span>${formatDate(article.published_at || article.created_at)}</span>
+          </div>
+          ${article.summary ? `<div class="article-summary">${escapeHtml(article.summary)}</div>` : ''}
+        </div>
+        <div class="article-actions">
+          <button class="article-read-btn" data-id="${article.id}" data-action="toggle-read">
+            ${article.read ? 'Unread' : 'Read'}
+          </button>
+        </div>
+      </div>
+    `
+  }).join('')
+
+  document.getElementById('count-articles')!.textContent = String(articles.length)
+}
+
+async function loadData() {
+  if (currentView === 'books') {
+    await loadBooks()
+  } else if (currentView === 'articles') {
+    await Promise.all([loadFeeds(), loadArticles()])
+  }
+}
+
+async function loadFeeds() {
+  try {
+    feeds = await invoke<Feed[]>('get_feeds')
+    document.getElementById('count-feeds')!.textContent = String(feeds.length)
+  } catch (e) {
+    console.error('Failed to load feeds:', e)
+  }
+}
+
+async function loadArticles() {
+  try {
+    articles = await invoke<Article[]>('get_all_articles', { limit: 500 })
+    selectedArticleIndex = articles.length > 0 ? 0 : -1
+    renderArticleList()
+  } catch (e) {
+    console.error('Failed to load articles:', e)
+  }
+}
+
+async function searchArticles(query: string) {
+  try {
+    if (!query.trim()) {
+      await loadArticles()
+      return
+    }
+    articles = await invoke<Article[]>('search_articles', { query, limit: 100 })
+    selectedArticleIndex = articles.length > 0 ? 0 : -1
+    renderArticleList()
+  } catch (e) {
+    console.error('Search failed:', e)
+  }
 }
 
 function setupEventListeners() {
-  document.getElementById('add-books-btn')?.addEventListener('click', addBooks)
-  document.getElementById('empty-add-btn')?.addEventListener('click', addBooks)
-
-  document.getElementById('search-input')?.addEventListener('input', (e) => {
-    const query = (e.target as HTMLInputElement).value.toLowerCase()
-    filterBooks(query)
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault()
+      const view = (e.currentTarget as HTMLElement).dataset.view as View
+      if (view && view !== 'feeds') {
+        currentView = view
+        renderApp()
+      } else if (view === 'feeds') {
+        alert('Feed management coming in v0.3.0')
+      }
+    })
   })
 
-  const contentArea = document.getElementById('content-area')!
-  contentArea.addEventListener('dragover', (e) => {
+  if (currentView === 'books') {
+    document.getElementById('add-books-btn')?.addEventListener('click', addBooks)
+    document.getElementById('empty-add-btn')?.addEventListener('click', addBooks)
+    document.getElementById('search-input')?.addEventListener('input', (e) => {
+      const query = (e.target as HTMLInputElement).value.toLowerCase()
+      filterBooks(query)
+    })
+  } else if (currentView === 'articles') {
+    setupArticleListeners()
+  }
+
+  document.addEventListener('keydown', handleKeyboard)
+}
+
+function setupArticleListeners() {
+  const searchInput = document.getElementById('search-input') as HTMLInputElement
+  searchInput?.addEventListener('input', (e) => {
+    searchQuery = (e.target as HTMLInputElement).value
+    if (searchQuery.trim()) {
+      searchArticles(searchQuery)
+    } else {
+      loadArticles()
+    }
+  })
+
+  document.getElementById('add-feed-btn')?.addEventListener('click', () => {
+    const form = document.getElementById('feed-form')!
+    form.style.display = form.style.display === 'none' ? 'flex' : 'none'
+  })
+
+  document.getElementById('cancel-feed-btn')?.addEventListener('click', () => {
+    document.getElementById('feed-form')!.style.display = 'none'
+  })
+
+  document.getElementById('submit-feed-btn')?.addEventListener('click', addFeed)
+  document.getElementById('feed-url-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addFeed()
+  })
+
+  document.getElementById('refresh-feeds-btn')?.addEventListener('click', refreshFeeds)
+
+  document.querySelectorAll('.filter-tab').forEach(el => {
+    el.addEventListener('click', (e) => {
+      articleFilter = (e.currentTarget as HTMLElement).dataset.filter as ArticleFilter
+      selectedArticleIndex = -1
+      renderApp()
+    })
+  })
+
+  document.getElementById('article-list')?.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement
+    const item = target.closest('.article-item') as HTMLElement
+    if (!item) return
+
+    const id = Number(item.dataset.id)
+    const action = target.closest('[data-action]')?.getAttribute('data-action')
+
+    if (action === 'star' || target.classList.contains('article-star')) {
+      toggleStar(id)
+    } else if (action === 'toggle-read') {
+      toggleRead(id)
+    } else if (action === 'open' || target.closest('.article-content')) {
+      openArticle(id)
+    }
+  })
+}
+
+function handleKeyboard(e: KeyboardEvent) {
+  const searchInput = document.getElementById('search-input') as HTMLInputElement
+  const isSearchFocused = document.activeElement === searchInput
+  const readerOverlay = document.getElementById('reader-overlay')
+
+  if (e.key === '/' && !isSearchFocused && !readerOverlay) {
     e.preventDefault()
-    contentArea.classList.add('drag-over')
+    searchInput?.focus()
+    return
+  }
+
+  if (e.key === 'Escape') {
+    if (readerOverlay) {
+      closeReader()
+    } else if (isSearchFocused) {
+      searchInput?.blur()
+      searchQuery = ''
+      searchInput.value = ''
+      loadArticles()
+    }
+    return
+  }
+
+  if (readerOverlay) {
+    if (e.key === 'o' || e.key === 'O') {
+      closeReader()
+    }
+    return
+  }
+
+  if (isSearchFocused) return
+
+  const filteredCount = getFilteredArticles().length
+
+  switch (e.key) {
+    case 'j':
+    case 'J':
+      e.preventDefault()
+      if (selectedArticleIndex < filteredCount - 1) {
+        selectedArticleIndex++
+        renderArticleList()
+        scrollToSelected()
+      }
+      break
+    case 'k':
+    case 'K':
+      e.preventDefault()
+      if (selectedArticleIndex > 0) {
+        selectedArticleIndex--
+        renderArticleList()
+        scrollToSelected()
+      }
+      break
+    case 'o':
+    case 'O':
+      e.preventDefault()
+      if (selectedArticleIndex >= 0) {
+        const filtered = getFilteredArticles()
+        if (filtered[selectedArticleIndex]) {
+          openArticle(filtered[selectedArticleIndex].id)
+        }
+      }
+      break
+    case 'r':
+    case 'R':
+      e.preventDefault()
+      if (selectedArticleIndex >= 0) {
+        const filtered = getFilteredArticles()
+        if (filtered[selectedArticleIndex]) {
+          toggleRead(filtered[selectedArticleIndex].id)
+        }
+      }
+      break
+    case 's':
+    case 'S':
+      e.preventDefault()
+      if (selectedArticleIndex >= 0) {
+        const filtered = getFilteredArticles()
+        if (filtered[selectedArticleIndex]) {
+          toggleStar(filtered[selectedArticleIndex].id)
+        }
+      }
+      break
+  }
+}
+
+function getFilteredArticles(): Article[] {
+  let filtered = articles
+  if (articleFilter === 'unread') {
+    filtered = articles.filter(a => !a.read)
+  } else if (articleFilter === 'starred') {
+    filtered = articles.filter(a => a.starred)
+  }
+  if (searchQuery.trim()) {
+    const q = searchQuery.toLowerCase()
+    filtered = filtered.filter(a =>
+      a.title.toLowerCase().includes(q) ||
+      (a.summary && a.summary.toLowerCase().includes(q)) ||
+      (a.author && a.author.toLowerCase().includes(q))
+    )
+  }
+  return filtered
+}
+
+function scrollToSelected() {
+  const selected = document.querySelector('.article-item.selected')
+  selected?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+}
+
+async function openArticle(id: number) {
+  try {
+    const article = await invoke<Article>('get_article', { articleId: id })
+    if (!article) return
+
+    currentArticle = article
+
+    if (article.content) {
+      extractedContent = {
+        title: article.title,
+        content: article.content,
+        text_content: '',
+        author: article.author,
+      }
+      showReader()
+    } else {
+      const extracted = await invoke<ExtractedContent>('extract_article_content', {
+        articleId: id,
+        url: article.url,
+      })
+      extractedContent = extracted
+      showReader()
+    }
+
+    if (!article.read) {
+      await toggleRead(id, false)
+    }
+  } catch (e) {
+    console.error('Failed to open article:', e)
+    alert('Failed to open article. Make sure the URL is accessible.')
+  }
+}
+
+function showReader() {
+  const main = document.getElementById('main-content')!
+  const readerHtml = renderReaderView()
+  if (readerHtml) {
+    main.insertAdjacentHTML('beforeend', readerHtml)
+    setupReaderListeners()
+  }
+}
+
+function setupReaderListeners() {
+  document.getElementById('reader-close-btn')?.addEventListener('click', closeReader)
+  document.getElementById('reader-star-btn')?.addEventListener('click', () => {
+    if (currentArticle) toggleStar(currentArticle.id)
   })
-  contentArea.addEventListener('dragleave', () => {
-    contentArea.classList.remove('drag-over')
+  document.getElementById('reader-mark-read-btn')?.addEventListener('click', () => {
+    if (currentArticle) toggleRead(currentArticle.id)
   })
-  contentArea.addEventListener('drop', (e) => {
-    e.preventDefault()
-    contentArea.classList.remove('drag-over')
-    // TODO: handle file drop
-  })
+}
+
+function closeReader() {
+  document.getElementById('reader-overlay')?.remove()
+  currentArticle = null
+  extractedContent = null
+}
+
+async function toggleRead(id: number, shouldRefresh = true) {
+  try {
+    const article = articles.find(a => a.id === id)
+    if (!article) return
+
+    const newRead = !article.read
+    await invoke('mark_article_read', { articleId: id, read: newRead })
+    article.read = newRead
+
+    if (shouldRefresh) renderArticleList()
+  } catch (e) {
+    console.error('Failed to toggle read:', e)
+  }
+}
+
+async function toggleStar(id: number) {
+  try {
+    const article = articles.find(a => a.id === id)
+    if (!article) return
+
+    const newStarred = !article.starred
+    await invoke('star_article', { articleId: id, starred: newStarred })
+    article.starred = newStarred
+    renderArticleList()
+  } catch (e) {
+    console.error('Failed to toggle star:', e)
+  }
+}
+
+async function addFeed() {
+  const input = document.getElementById('feed-url-input') as HTMLInputElement
+  const url = input.value.trim()
+  if (!url) return
+
+  try {
+    await invoke('add_feed', {
+      title: url,
+      url,
+      siteUrl: null,
+      description: null,
+      folderId: null,
+    })
+    input.value = ''
+    document.getElementById('feed-form')!.style.display = 'none'
+    await loadFeeds()
+    await refreshFeeds()
+  } catch (e) {
+    console.error('Failed to add feed:', e)
+    alert('Failed to add feed. Please check the URL and try again.')
+  }
+}
+
+async function refreshFeeds() {
+  const btn = document.getElementById('refresh-feeds-btn') as HTMLButtonElement
+  if (btn) btn.textContent = 'Refreshing...'
+
+  try {
+    await invoke('refresh_feeds')
+    await loadArticles()
+  } catch (e) {
+    console.error('Failed to refresh feeds:', e)
+  } finally {
+    if (btn) btn.textContent = '↻ Refresh'
+  }
 }
 
 async function loadBooks() {
   try {
     const result = await invoke<Book[]>('get_books')
     books = result
-    updateCounts()
+    updateBookCounts()
     renderBookGrid(books)
   } catch (e) {
     console.error('Failed to load books:', e)
   }
 }
 
-function updateCounts() {
+function updateBookCounts() {
   document.getElementById('count-all')!.textContent = String(books.length)
-  document.getElementById('count-reading')!.textContent = String(books.filter(b => b.progress > 0 && b.progress < 1).length)
-  document.getElementById('count-finished')!.textContent = String(books.filter(b => b.progress >= 1).length)
-  document.getElementById('count-want')!.textContent = String(books.filter(b => b.progress === 0).length)
 }
 
 async function getCoverUrl(coverPath?: string): Promise<string | undefined> {
@@ -132,10 +650,7 @@ async function renderBookGrid(booksToRender: Book[]) {
   grid.style.display = 'grid'
   emptyState.style.display = 'none'
 
-  // Load covers in parallel
-  const covers = await Promise.all(
-    booksToRender.map(b => getCoverUrl(b.coverPath))
-  )
+  const covers = await Promise.all(booksToRender.map(b => getCoverUrl(b.coverPath)))
 
   grid.innerHTML = booksToRender.map((book, i) => {
     const coverUrl = covers[i]
@@ -143,7 +658,7 @@ async function renderBookGrid(booksToRender: Book[]) {
     <div class="book-card" data-id="${book.id}">
       <div class="book-cover" onclick="openBook(${book.id})">
         ${coverUrl
-          ? `<img src="${coverUrl}" alt="${book.title}" loading="lazy">`
+          ? `<img src="${coverUrl}" alt="${escapeHtml(book.title)}" loading="lazy">`
           : `<div class="cover-placeholder">
               <span class="cover-letter">${book.title.charAt(0)}</span>
              </div>`
@@ -155,8 +670,8 @@ async function renderBookGrid(booksToRender: Book[]) {
         ` : ''}
       </div>
       <div class="book-info">
-        <h3 class="book-title">${book.title}</h3>
-        <p class="book-author">${book.authors.join(', ')}</p>
+        <h3 class="book-title">${escapeHtml(book.title)}</h3>
+        <p class="book-author">${escapeHtml(book.authors.join(', '))}</p>
       </div>
     </div>
   `}).join('')
@@ -186,7 +701,7 @@ async function addBooks() {
     const added = await invoke<Book[]>('add_books', { paths })
 
     books = [...books, ...added]
-    updateCounts()
+    updateBookCounts()
     renderBookGrid(books)
   } catch (e) {
     console.error('Failed to add books:', e)
@@ -203,6 +718,34 @@ async function openBook(bookId: number) {
   app.appendChild(reader)
 }
 
+function escapeHtml(text: string): string {
+  const div = document.createElement('div')
+  div.textContent = text
+  return div.innerHTML
+}
+
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+
+  if (days === 0) {
+    const hours = Math.floor(diff / (1000 * 60 * 60))
+    if (hours === 0) {
+      const mins = Math.floor(diff / (1000 * 60))
+      return mins <= 1 ? 'just now' : `${mins}m ago`
+    }
+    return `${hours}h ago`
+  } else if (days === 1) {
+    return 'yesterday'
+  } else if (days < 7) {
+    return `${days}d ago`
+  } else {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+}
+
 // Boot sequence
 async function boot() {
   const app = document.getElementById('app')!
@@ -213,7 +756,7 @@ async function boot() {
       <div class="loading-bar">
         <div class="loading-fill"></div>
       </div>
-      <p class="version">v0.1.0</p>
+      <p class="version">v0.2.0</p>
     </div>
   `
 

@@ -10,6 +10,8 @@ pub mod models;
 pub mod feed_parser;
 pub mod fetch;
 pub mod refresh;
+pub mod readability;
+pub mod article_fetcher;
 
 use serde::{Deserialize, Serialize};
 
@@ -72,3 +74,5 @@ pub struct TocEntry {
 pub use models::{Article, Feed, Folder, Tag};
 pub use feed_parser::{ParsedFeed, ParsedArticle};
 pub use refresh::{FeedRefreshService, RefreshStats, run_refresh};
+pub use readability::ExtractedContent;
+pub use article_fetcher::fetch_and_extract;
