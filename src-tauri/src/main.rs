@@ -84,7 +84,16 @@ fn main() {
             get_unread_count,
             import_opml,
             export_opml,
-            discover_feeds
+            discover_feeds,
+            delete_feed,
+            update_feed,
+            get_feed_stats,
+            get_all_feed_stats,
+            get_library_stats,
+            delete_article,
+            delete_old_articles,
+            mark_all_articles_read,
+            find_duplicate_articles
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -799,6 +808,155 @@ async fn export_opml(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 async fn discover_feeds(url: String) -> Result<Vec<synthreader_core::DiscoveredFeed>, String> {
     synthreader_core::discover_feeds(&url)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_feed(app: tauri::AppHandle, feed_id: i64) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.delete_feed(feed_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn update_feed(
+    app: tauri::AppHandle,
+    feed_id: i64,
+    title: String,
+    url: String,
+    site_url: Option<String>,
+    description: Option<String>,
+    folder_id: Option<i64>,
+) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.update_feed(feed_id, &title, &url, site_url.as_deref(), description.as_deref(), folder_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_feed_stats(
+    app: tauri::AppHandle,
+    feed_id: i64,
+) -> Result<Option<synthreader_core::models::FeedStats>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_feed_stats(feed_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_all_feed_stats(
+    app: tauri::AppHandle,
+) -> Result<Vec<synthreader_core::models::FeedStats>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_all_feed_stats()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_library_stats(
+    app: tauri::AppHandle,
+) -> Result<synthreader_core::models::LibraryStats, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_library_stats()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_article(app: tauri::AppHandle, article_id: i64) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.delete_article(article_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_old_articles(
+    app: tauri::AppHandle,
+    older_than_days: i64,
+    keep_starred: bool,
+) -> Result<usize, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.delete_old_articles(older_than_days, keep_starred)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn mark_all_articles_read(
+    app: tauri::AppHandle,
+    feed_id: Option<i64>,
+) -> Result<usize, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.mark_all_articles_read(feed_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn find_duplicate_articles(
+    app: tauri::AppHandle,
+    feed_id: i64,
+) -> Result<Vec<(i64, String)>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.find_duplicate_articles(feed_id)
         .await
         .map_err(|e| e.to_string())
 }

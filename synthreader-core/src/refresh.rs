@@ -28,9 +28,15 @@ impl FeedRefreshService {
             match self.refresh_feed(feed.id, &feed.url).await {
                 Ok(new_count) => {
                     info!("Feed '{}' refreshed, {} new articles", feed.title, new_count);
+                    if let Err(e) = self.db.clear_feed_error(feed.id).await {
+                        warn!("Failed to clear error for feed '{}': {}", feed.title, e);
+                    }
                 }
                 Err(e) => {
                     warn!("Failed to refresh feed '{}': {}", feed.title, e);
+                    if let Err(db_err) = self.db.record_feed_error(feed.id, &e.to_string()).await {
+                        warn!("Failed to record error for feed '{}': {}", feed.title, db_err);
+                    }
                 }
             }
         }

@@ -59,21 +59,21 @@ pub async fn discover_feeds(url: &str) -> anyhow::Result<Vec<DiscoveredFeed>> {
 
         for path in common_paths {
             let test_url = format!("{}{}", base_url, path);
-            if let Ok(response) = client.head(&test_url).send().await {
-                if response.status().is_success() {
-                    let content_type = response
-                        .headers()
-                        .get(reqwest::header::CONTENT_TYPE)
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or("");
+            if let Ok(response) = client.head(&test_url).send().await
+                && response.status().is_success()
+            {
+                let content_type = response
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
 
-                    if content_type.contains("xml") || content_type.contains("rss") || content_type.contains("atom") {
-                        found.push(DiscoveredFeed {
-                            title: format!("Feed ({})", path),
-                            url: test_url,
-                            feed_type: "RSS/Atom".to_string(),
-                        });
-                    }
+                if content_type.contains("xml") || content_type.contains("rss") || content_type.contains("atom") {
+                    found.push(DiscoveredFeed {
+                        title: format!("Feed ({})", path),
+                        url: test_url,
+                        feed_type: "RSS/Atom".to_string(),
+                    });
                 }
             }
         }
@@ -158,10 +158,10 @@ fn looks_like_feed(body: &str) -> bool {
 
 fn extract_feed_title(body: &str) -> Option<String> {
     // Quick extraction of title from RSS/Atom feed
-    if let Some(start) = body.find("<title>") {
-        if let Some(end) = body[start + 7..].find("</title>") {
-            return Some(body[start + 7..start + 7 + end].trim().to_string());
-        }
+    if let Some(start) = body.find("<title>")
+        && let Some(end) = body[start + 7..].find("</title>")
+    {
+        return Some(body[start + 7..start + 7 + end].trim().to_string());
     }
     None
 }

@@ -9,6 +9,8 @@ pub struct Feed {
     pub description: Option<String>,
     pub folder_id: Option<i64>,
     pub last_fetched: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_error: Option<String>,
+    pub consecutive_errors: i64,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -40,4 +42,35 @@ pub struct Tag {
     pub id: i64,
     pub name: String,
     pub color: Option<String>,
+}
+
+/// Health status of a feed based on recent fetch attempts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FeedHealth {
+    Healthy,
+    Warning,
+    Error,
+}
+
+/// Statistics for a single feed.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct FeedStats {
+    pub feed_id: i64,
+    pub feed_title: String,
+    pub total_articles: i64,
+    pub unread_count: i64,
+    pub starred_count: i64,
+    pub last_fetched: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_error: Option<String>,
+    pub consecutive_errors: i64,
+}
+
+/// Summary of overall library statistics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryStats {
+    pub total_feeds: i64,
+    pub total_articles: i64,
+    pub total_unread: i64,
+    pub total_starred: i64,
+    pub feeds_with_errors: i64,
 }
