@@ -14,6 +14,10 @@ pub mod readability;
 pub mod article_fetcher;
 pub mod opml;
 pub mod discovery;
+pub mod search;
+pub mod recommend;
+pub mod similarity;
+pub mod offline;
 
 use serde::{Deserialize, Serialize};
 
@@ -75,8 +79,12 @@ pub struct TocEntry {
 // Re-export key types from models
 pub use models::{Article, Feed, Folder, Tag};
 pub use feed_parser::{ParsedFeed, ParsedArticle};
-pub use refresh::{FeedRefreshService, RefreshStats, run_refresh};
+pub use refresh::{FeedRefreshService, RefreshStats, RefreshProgress, run_refresh, run_refresh_with_progress};
 pub use readability::ExtractedContent;
 pub use article_fetcher::fetch_and_extract;
-pub use opml::{OpmlDocument, OpmlFeed, OpmlFolder, parse_opml, generate_opml};
+pub use opml::{OpmlDocument, OpmlFeed, OpmlFolder, parse_opml, generate_opml, parse_pocket_opml};
 pub use discovery::{DiscoveredFeed, discover_feeds};
+pub use search::{highlight_text, highlight_text_multi, extract_snippets, tokenize};
+pub use recommend::{recommend_feeds, FeedRecommendation, CandidateFeed};
+pub use similarity::{find_related_articles, RelatedArticle};
+pub use offline::{check_connectivity, ConnectivityStatus, CacheStatus, calculate_cache_status, is_article_offline_ready};

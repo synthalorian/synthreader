@@ -31,13 +31,34 @@ Thread reader / RSS aggregator. Rust + Tauri. Cross-platform desktop app.
 - [x] Article filtering (unread only, starred, by tag)
 - [x] Custom themes (light/dark/synthwave)
 
-## v0.4.0 — Polish
+## v0.4.0 — Polish (Complete)
 
-- [ ] Feed health monitoring (track fetch errors, last success/failure)
-- [ ] Feed management (delete feed, edit feed properties, feed stats)
-- [ ] Article cleanup (bulk delete old articles, duplicate detection)
-- [ ] Code quality improvements and comprehensive tests
-- [ ] Error handling: structured feed fetch error tracking
+- [x] Feed health monitoring (track fetch errors, last success/failure)
+- [x] Feed management (delete feed, edit feed properties, feed stats)
+- [x] Article cleanup (bulk delete old articles, duplicate detection)
+- [x] Code quality improvements and comprehensive tests
+- [x] Error handling: structured feed fetch error tracking
+
+## v0.5.0 — Search & Discovery
+
+- [x] Full-text search across articles (SQLite FTS5)
+- [x] Search highlighting in article content
+- [x] Feed recommendation engine — suggest feeds based on reading history
+- [x] Article similarity detection — "related articles" feature
+- [x] Global keyboard shortcuts (j/k navigation, o open, s star, r refresh)
+- [x] Quick filter bar — search feeds and articles in real-time
+- [x] Import from Pocket/Instapaper OPML exports
+
+## v0.6.0 — Frontend & Polish
+
+- [x] Tauri frontend: article list view with virtual scrolling
+- [x] Article reader view — clean, distraction-free reading
+- [x] Readability-style content extraction from article HTML
+- [x] Custom themes: light, dark, synthwave (CSS variables)
+- [x] Mark read/unread, star articles from UI
+- [x] Offline mode — read cached articles without internet
+- [x] Auto-refresh feeds on startup with progress indicator
+- [x] Performance: smooth scrolling with 10k+ articles
 
 ## v1.0.0 — Ship It
 
