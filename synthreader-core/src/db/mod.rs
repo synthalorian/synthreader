@@ -247,6 +247,72 @@ impl LibraryDb {
         Ok(articles)
     }
 
+    pub async fn get_unread_articles(
+        &self,
+        limit: Option<i64>,
+    ) -> anyhow::Result<Vec<Article>> {
+        let limit = limit.unwrap_or(500);
+        let articles = sqlx::query_as::<_, Article>(
+            r#"
+            SELECT id, feed_id, title, url, content, summary, author, published_at, read, starred, created_at
+            FROM articles
+            WHERE read = 0
+            ORDER BY published_at DESC NULLS LAST, created_at DESC
+            LIMIT ?1
+            "#
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(articles)
+    }
+
+    pub async fn get_starred_articles(
+        &self,
+        limit: Option<i64>,
+    ) -> anyhow::Result<Vec<Article>> {
+        let limit = limit.unwrap_or(500);
+        let articles = sqlx::query_as::<_, Article>(
+            r#"
+            SELECT id, feed_id, title, url, content, summary, author, published_at, read, starred, created_at
+            FROM articles
+            WHERE starred = 1
+            ORDER BY published_at DESC NULLS LAST, created_at DESC
+            LIMIT ?1
+            "#
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(articles)
+    }
+
+    pub async fn get_unread_count(&self) -> anyhow::Result<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM articles WHERE read = 0"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count)
+    }
+
+    pub async fn get_feed_unread_count(
+        &self,
+        feed_id: i64,
+    ) -> anyhow::Result<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM articles WHERE feed_id = ?1 AND read = 0"
+        )
+        .bind(feed_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count)
+    }
+
     pub async fn get_article(&self, article_id: i64) -> anyhow::Result<Option<Article>> {
         let article = sqlx::query_as::<_, Article>(
             r#"
@@ -370,6 +436,64 @@ impl LibraryDb {
         Ok(folders)
     }
 
+    pub async fn update_folder(
+        &self,
+        folder_id: i64,
+        name: &str,
+        parent_id: Option<i64>,
+        sort_order: i32,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE folders SET name = ?1, parent_id = ?2, sort_order = ?3 WHERE id = ?4"
+        )
+        .bind(name)
+        .bind(parent_id)
+        .bind(sort_order)
+        .bind(folder_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_folder(&self, folder_id: i64) -> anyhow::Result<()> {
+        // Feeds in this folder will have folder_id set to NULL due to ON DELETE SET NULL
+        sqlx::query("DELETE FROM folders WHERE id = ?1")
+            .bind(folder_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_feeds_by_folder(
+        &self,
+        folder_id: i64,
+    ) -> anyhow::Result<Vec<Feed>> {
+        let feeds = sqlx::query_as::<_, Feed>(
+            "SELECT id, title, url, site_url, description, folder_id, last_fetched, created_at FROM feeds WHERE folder_id = ?1 ORDER BY created_at DESC"
+        )
+        .bind(folder_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(feeds)
+    }
+
+    pub async fn move_feed_to_folder(
+        &self,
+        feed_id: i64,
+        folder_id: Option<i64>,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE feeds SET folder_id = ?1 WHERE id = ?2")
+            .bind(folder_id)
+            .bind(feed_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
     // -- Tag methods --
 
     pub async fn add_tag(
@@ -415,6 +539,75 @@ impl LibraryDb {
         .bind(tag_id)
         .execute(&self.pool)
         .await?;
+
+        Ok(())
+    }
+
+    pub async fn untag_article(
+        &self,
+        article_id: i64,
+        tag_id: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "DELETE FROM article_tags WHERE article_id = ?1 AND tag_id = ?2"
+        )
+        .bind(article_id)
+        .bind(tag_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_article_tags(
+        &self,
+        article_id: i64,
+    ) -> anyhow::Result<Vec<Tag>> {
+        let tags = sqlx::query_as::<_, Tag>(
+            r#"
+            SELECT t.id, t.name, t.color
+            FROM tags t
+            JOIN article_tags at ON t.id = at.tag_id
+            WHERE at.article_id = ?1
+            ORDER BY t.name
+            "#
+        )
+        .bind(article_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(tags)
+    }
+
+    pub async fn get_articles_by_tag(
+        &self,
+        tag_id: i64,
+        limit: Option<i64>,
+    ) -> anyhow::Result<Vec<Article>> {
+        let limit = limit.unwrap_or(500);
+        let articles = sqlx::query_as::<_, Article>(
+            r#"
+            SELECT a.id, a.feed_id, a.title, a.url, a.content, a.summary, a.author, a.published_at, a.read, a.starred, a.created_at
+            FROM articles a
+            JOIN article_tags at ON a.id = at.article_id
+            WHERE at.tag_id = ?1
+            ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC
+            LIMIT ?2
+            "#
+        )
+        .bind(tag_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(articles)
+    }
+
+    pub async fn delete_tag(&self, tag_id: i64) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM tags WHERE id = ?1")
+            .bind(tag_id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
