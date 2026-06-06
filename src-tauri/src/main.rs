@@ -65,7 +65,26 @@ fn main() {
             get_book_chapters,
             get_chapter_content,
             get_font_preference,
-            set_font_preference
+            set_font_preference,
+            add_folder,
+            get_folders,
+            update_folder,
+            delete_folder,
+            get_feeds_by_folder,
+            move_feed_to_folder,
+            add_tag,
+            get_tags,
+            tag_article,
+            untag_article,
+            get_article_tags,
+            get_articles_by_tag,
+            delete_tag,
+            get_unread_articles,
+            get_starred_articles,
+            get_unread_count,
+            import_opml,
+            export_opml,
+            discover_feeds
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -75,8 +94,6 @@ fn main() {
 fn greet(name: &str) -> String {
     format!("Hello, {}! Welcome to Synthreader.", name)
 }
-
-// -- Feed commands --
 
 #[tauri::command]
 async fn add_feed(
@@ -258,8 +275,6 @@ async fn refresh_feeds(app: tauri::AppHandle) -> Result<synthreader_core::Refres
         .map_err(|e| e.to_string())
 }
 
-// -- Book commands (legacy) --
-
 #[derive(serde::Serialize)]
 struct BookDto {
     id: i64,
@@ -369,8 +384,6 @@ async fn get_book_cover(
     std::fs::read(&path).map_err(|e| e.to_string())
 }
 
-// -- System font commands --
-
 #[tauri::command]
 fn get_system_fonts() -> Result<Vec<FontDto>, String> {
     let fonts = synthreader_core::fonts::discover_system_fonts();
@@ -415,7 +428,380 @@ async fn set_font_preference(
         .map_err(|e| e.to_string())
 }
 
-// -- Book reader commands --
+#[tauri::command]
+async fn add_folder(
+    app: tauri::AppHandle,
+    name: String,
+    parent_id: Option<i64>,
+    sort_order: i32,
+) -> Result<i64, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.add_folder(&name, parent_id, sort_order)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_folders(app: tauri::AppHandle) -> Result<Vec<synthreader_core::Folder>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_folders().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn update_folder(
+    app: tauri::AppHandle,
+    folder_id: i64,
+    name: String,
+    parent_id: Option<i64>,
+    sort_order: i32,
+) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.update_folder(folder_id, &name, parent_id, sort_order)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_folder(app: tauri::AppHandle, folder_id: i64) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.delete_folder(folder_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_feeds_by_folder(
+    app: tauri::AppHandle,
+    folder_id: i64,
+) -> Result<Vec<synthreader_core::Feed>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_feeds_by_folder(folder_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn move_feed_to_folder(
+    app: tauri::AppHandle,
+    feed_id: i64,
+    folder_id: Option<i64>,
+) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.move_feed_to_folder(feed_id, folder_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn add_tag(
+    app: tauri::AppHandle,
+    name: String,
+    color: Option<String>,
+) -> Result<i64, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.add_tag(&name, color.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_tags(app: tauri::AppHandle) -> Result<Vec<synthreader_core::Tag>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_tags().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn tag_article(
+    app: tauri::AppHandle,
+    article_id: i64,
+    tag_id: i64,
+) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.tag_article(article_id, tag_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn untag_article(
+    app: tauri::AppHandle,
+    article_id: i64,
+    tag_id: i64,
+) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.untag_article(article_id, tag_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_article_tags(
+    app: tauri::AppHandle,
+    article_id: i64,
+) -> Result<Vec<synthreader_core::Tag>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_article_tags(article_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_articles_by_tag(
+    app: tauri::AppHandle,
+    tag_id: i64,
+    limit: Option<i64>,
+) -> Result<Vec<synthreader_core::Article>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_articles_by_tag(tag_id, limit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_tag(app: tauri::AppHandle, tag_id: i64) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.delete_tag(tag_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_unread_articles(
+    app: tauri::AppHandle,
+    limit: Option<i64>,
+) -> Result<Vec<synthreader_core::Article>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_unread_articles(limit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_starred_articles(
+    app: tauri::AppHandle,
+    limit: Option<i64>,
+) -> Result<Vec<synthreader_core::Article>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_starred_articles(limit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_unread_count(app: tauri::AppHandle) -> Result<i64, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.get_unread_count().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn import_opml(
+    app: tauri::AppHandle,
+    xml_content: String,
+) -> Result<serde_json::Value, String> {
+    let doc = synthreader_core::parse_opml(&xml_content).map_err(|e| e.to_string())?;
+
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut imported_feeds = 0;
+    let mut imported_folders = 0;
+    let mut errors = Vec::new();
+
+    for folder in &doc.folders {
+        let folder_id = db
+            .add_folder(&folder.title, None, imported_folders)
+            .await
+            .map_err(|e| e.to_string())?;
+        imported_folders += 1;
+
+        for feed in &folder.feeds {
+            match db
+                .add_feed(
+                    &feed.title,
+                    &feed.url,
+                    feed.site_url.as_deref(),
+                    None,
+                    Some(folder_id),
+                )
+                .await
+            {
+                Ok(_) => imported_feeds += 1,
+                Err(e) => errors.push(format!("Failed to import feed '{}': {}", feed.title, e)),
+            }
+        }
+    }
+
+    for feed in &doc.feeds {
+        match db
+            .add_feed(&feed.title, &feed.url, feed.site_url.as_deref(), None, None)
+            .await
+        {
+            Ok(_) => imported_feeds += 1,
+            Err(e) => errors.push(format!("Failed to import feed '{}': {}", feed.title, e)),
+        }
+    }
+
+    let result = serde_json::json!({
+        "imported_feeds": imported_feeds,
+        "imported_folders": imported_folders,
+        "errors": errors,
+    });
+
+    Ok(result)
+}
+
+#[tauri::command]
+async fn export_opml(app: tauri::AppHandle) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let feeds = db.get_feeds().await.map_err(|e| e.to_string())?;
+    let folders = db.get_folders().await.map_err(|e| e.to_string())?;
+
+    let mut opml_folders = Vec::new();
+    let mut root_feeds = Vec::new();
+
+    for folder in folders {
+        let folder_feeds: Vec<synthreader_core::OpmlFeed> = feeds
+            .iter()
+            .filter(|f| f.folder_id == Some(folder.id))
+            .map(|f| synthreader_core::OpmlFeed {
+                title: f.title.clone(),
+                url: f.url.clone(),
+                site_url: f.site_url.clone(),
+            })
+            .collect();
+
+        if !folder_feeds.is_empty() {
+            opml_folders.push(synthreader_core::OpmlFolder {
+                title: folder.name.clone(),
+                feeds: folder_feeds,
+            });
+        }
+    }
+
+    for feed in feeds.iter().filter(|f| f.folder_id.is_none()) {
+        root_feeds.push(synthreader_core::OpmlFeed {
+            title: feed.title.clone(),
+            url: feed.url.clone(),
+            site_url: feed.site_url.clone(),
+        });
+    }
+
+    let opml = synthreader_core::generate_opml("Synthreader Feeds", &opml_folders, &root_feeds);
+    Ok(opml)
+}
+
+#[tauri::command]
+async fn discover_feeds(url: String) -> Result<Vec<synthreader_core::DiscoveredFeed>, String> {
+    synthreader_core::discover_feeds(&url)
+        .await
+        .map_err(|e| e.to_string())
+}
 
 #[tauri::command]
 async fn get_book_chapters(

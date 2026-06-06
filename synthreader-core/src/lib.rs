@@ -12,6 +12,8 @@ pub mod fetch;
 pub mod refresh;
 pub mod readability;
 pub mod article_fetcher;
+pub mod opml;
+pub mod discovery;
 
 use serde::{Deserialize, Serialize};
 
@@ -76,3 +78,5 @@ pub use feed_parser::{ParsedFeed, ParsedArticle};
 pub use refresh::{FeedRefreshService, RefreshStats, run_refresh};
 pub use readability::ExtractedContent;
 pub use article_fetcher::fetch_and_extract;
+pub use opml::{OpmlDocument, OpmlFeed, OpmlFolder, parse_opml, generate_opml};
+pub use discovery::{DiscoveredFeed, discover_feeds};
