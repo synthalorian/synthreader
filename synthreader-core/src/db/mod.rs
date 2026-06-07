@@ -30,7 +30,7 @@ impl LibraryDb {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let url = format!("sqlite:{}", path.display());
+        let url = format!("sqlite:///{}?mode=rwc", path.display());
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect(&url)
@@ -129,6 +129,29 @@ impl LibraryDb {
         .await?;
 
         Ok(authors)
+    }
+
+    pub async fn delete_book(&self, book_id: i64) -> anyhow::Result<()> {
+        // Get cover path before deletion
+        let cover_path: Option<String> = sqlx::query_scalar(
+            "SELECT cover_path FROM books WHERE id = ?1"
+        )
+        .bind(book_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        // Delete book (cascades to book_authors, book_files via FK constraints)
+        sqlx::query("DELETE FROM books WHERE id = ?1")
+            .bind(book_id)
+            .execute(&self.pool)
+            .await?;
+
+        // Clean up cover file if exists
+        if let Some(path) = cover_path {
+            let _ = std::fs::remove_file(path);
+        }
+
+        Ok(())
     }
 
     // -- Feed methods --
@@ -885,6 +908,48 @@ impl LibraryDb {
         Ok(path)
     }
 
+    pub async fn save_reading_progress(
+        &self,
+        book_id: i64,
+        chapter_index: i64,
+        scroll_position: f64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO reading_progress (book_id, current_position, current_cfi, last_read_date, total_reading_time)
+            VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP, 0)
+            ON CONFLICT(book_id) DO UPDATE SET
+                current_position = excluded.current_position,
+                current_cfi = excluded.current_cfi,
+                last_read_date = excluded.last_read_date
+            "#
+        )
+        .bind(book_id)
+        .bind(scroll_position)
+        .bind(chapter_index.to_string())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_reading_progress(
+        &self,
+        book_id: i64,
+    ) -> anyhow::Result<Option<(i64, f64)>> {
+        let row: Option<(String, f64)> = sqlx::query_as(
+            "SELECT current_cfi, current_position FROM reading_progress WHERE book_id = ?1"
+        )
+        .bind(book_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.and_then(|(cfi, pos)| {
+            let chapter_index = cfi.parse().ok()?;
+            Some((chapter_index, pos))
+        }))
+    }
+
     pub(crate) async fn init_schema(pool: &SqlitePool) -> anyhow::Result<()> {
         sqlx::query(
             r#"
@@ -1336,5 +1401,34 @@ mod tests {
         db.untag_article(article_id, tag_id).await.unwrap();
         let tags = db.get_article_tags(article_id).await.unwrap();
         assert!(tags.is_empty());
+    }
+    #[tokio::test]
+    async fn test_add_and_get_book() {
+        let db = create_test_db().await;
+
+        let metadata = crate::BookMetadata {
+            title: "Test Book".to_string(),
+            subtitle: None,
+            authors: vec!["Test Author".to_string()],
+            description: None,
+            publisher: None,
+            published_date: None,
+            language: None,
+            isbn_10: None,
+            isbn_13: None,
+            page_count: None,
+            cover_data: None,
+            cover_url: None,
+        };
+
+        let book_id = db.add_book(&metadata, &None).await.unwrap();
+        assert!(book_id > 0);
+
+        let books = db.get_books().await.unwrap();
+        assert_eq!(books.len(), 1);
+        assert_eq!(books[0].title, "Test Book");
+
+        let authors = db.get_book_authors(book_id).await.unwrap();
+        assert_eq!(authors, vec!["Test Author"]);
     }
 }

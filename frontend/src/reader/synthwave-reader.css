@@ -10,7 +10,7 @@
 body {
   background: var(--reader-bg) !important;
   color: var(--reader-text) !important;
-  font-family: 'Inter', Georgia, serif !important;
+  font-family: '3270 Nerd Font', 'Inter', Georgia, serif !important;
   font-size: var(--reader-font-size) !important;
   line-height: var(--reader-line-height) !important;
   max-width: 700px;

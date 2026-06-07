@@ -10,6 +10,12 @@ interface SystemFont {
   family: string
 }
 
+interface BookProgress {
+  bookId: number
+  chapterIndex: number
+  scrollPosition: number
+}
+
 export class EpubRenderer extends HTMLElement {
   private chapters: EpubChapter[] = []
   private currentChapter = 0
@@ -18,6 +24,9 @@ export class EpubRenderer extends HTMLElement {
   private fonts: SystemFont[] = []
   private selectedFontPath: string = ''
   private fontPickerVisible = false
+  private fontBase64Map: Map<string, string> = new Map()
+  private boundKeyHandler = this.handleKeydown.bind(this)
+  private scrollPosition: number = 0
 
   constructor() {
     super()
@@ -28,7 +37,14 @@ export class EpubRenderer extends HTMLElement {
     this.bookId = bookId
     await this.loadFonts()
     await this.loadChapters()
+    await this.loadProgress()
     this.render()
+    document.addEventListener('keydown', this.boundKeyHandler)
+  }
+
+  disconnectedCallback() {
+    document.removeEventListener('keydown', this.boundKeyHandler)
+    this.saveProgress()
   }
 
   setChapters(chapters: EpubChapter[]) {
@@ -41,21 +57,41 @@ export class EpubRenderer extends HTMLElement {
       const { invoke } = await import('@tauri-apps/api/core')
       this.fonts = await invoke<SystemFont[]>('get_system_fonts')
 
-      // Load saved preference
       const saved = await invoke<string | null>('get_font_preference')
       if (saved) {
         this.selectedFontPath = saved
       } else if (this.fonts.length > 0) {
-        // Default to 3270 Nerd Font if available
         const nerdFont = this.fonts.find(f =>
           f.name.toLowerCase().includes('3270') ||
           f.family.toLowerCase().includes('3270')
         )
         this.selectedFontPath = nerdFont?.path || this.fonts[0].path
       }
+
+      await this.preloadFontData()
     } catch (e) {
       console.error('Failed to load fonts:', e)
     }
+  }
+
+  private async preloadFontData() {
+    const { readFile } = await import('@tauri-apps/plugin-fs')
+    for (const font of this.fonts) {
+      try {
+        const data = await readFile(font.path)
+        const bytes = new Uint8Array(data)
+        let binary = ''
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i])
+        }
+        const base64 = btoa(binary)
+        this.fontBase64Map.set(font.path, base64)
+        console.log(`[Font] Preloaded: ${font.name} (${font.path}) -> ${base64.length} chars`)
+      } catch (e) {
+        console.warn(`[Font] Failed to preload ${font.name}:`, e)
+      }
+    }
+    console.log(`[Font] Total preloaded: ${this.fontBase64Map.size}/${this.fonts.length}`)
   }
 
   private async loadChapters() {
@@ -89,6 +125,37 @@ export class EpubRenderer extends HTMLElement {
     }
   }
 
+  private async saveProgress() {
+    if (!this.bookId) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const progress: BookProgress = {
+        bookId: this.bookId,
+        chapterIndex: this.currentChapter,
+        scrollPosition: this.scrollPosition
+      }
+      await invoke('save_book_progress', { progress })
+    } catch (e) {
+      console.error('Failed to save progress:', e)
+    }
+  }
+
+  private async loadProgress() {
+    if (!this.bookId) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const progress = await invoke<BookProgress | null>('get_book_progress', {
+        bookId: this.bookId
+      })
+      if (progress) {
+        this.currentChapter = Math.min(progress.chapterIndex, this.chapters.length - 1)
+        this.scrollPosition = progress.scrollPosition || 0
+      }
+    } catch (e) {
+      console.error('Failed to load progress:', e)
+    }
+  }
+
   private async saveFontPreference(path: string) {
     try {
       const { invoke } = await import('@tauri-apps/api/core')
@@ -102,7 +169,96 @@ export class EpubRenderer extends HTMLElement {
     return this.fonts.find(f => f.path === this.selectedFontPath)
   }
 
+  private handleKeydown(e: KeyboardEvent) {
+    if (!this.shadowRoot || this.chapters.length === 0) return
+
+    const target = e.target as HTMLElement
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+
+    const frame = this.shadowRoot!.getElementById('content-frame') as HTMLIFrameElement
+    const frameDoc = frame?.contentDocument || frame?.contentWindow?.document
+
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'PageDown':
+        e.preventDefault()
+        if (frameDoc) {
+          const scrollHeight = frameDoc.documentElement.scrollHeight
+          const clientHeight = frameDoc.documentElement.clientHeight
+          const currentScroll = frameDoc.documentElement.scrollTop || frameDoc.body.scrollTop
+          const maxScroll = scrollHeight - clientHeight
+
+          if (currentScroll >= maxScroll - 10) {
+            this.goNext()
+          } else {
+            frameDoc.documentElement.scrollTop = currentScroll + clientHeight * 0.9
+          }
+        } else {
+          this.goNext()
+        }
+        break
+      case 'ArrowLeft':
+      case 'PageUp':
+        e.preventDefault()
+        if (frameDoc) {
+          const currentScroll = frameDoc.documentElement.scrollTop || frameDoc.body.scrollTop
+
+          if (currentScroll <= 10) {
+            this.goPrev()
+          } else {
+            const clientHeight = frameDoc.documentElement.clientHeight
+            frameDoc.documentElement.scrollTop = currentScroll - clientHeight * 0.9
+          }
+        } else {
+          this.goPrev()
+        }
+        break
+      case 'ArrowDown':
+        e.preventDefault()
+        if (frameDoc) {
+          frameDoc.documentElement.scrollTop += 40
+        }
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        if (frameDoc) {
+          frameDoc.documentElement.scrollTop -= 40
+        }
+        break
+      case 'Escape':
+        if (this.tocVisible || this.fontPickerVisible) {
+          e.preventDefault()
+          this.tocVisible = false
+          this.fontPickerVisible = false
+          this.render()
+        }
+        break
+    }
+  }
+
+  private goNext() {
+    if (this.currentChapter < this.chapters.length - 1) {
+      this.saveProgress()
+      this.currentChapter++
+      this.scrollPosition = 0
+      this.render()
+    }
+  }
+
+  private goPrev() {
+    if (this.currentChapter > 0) {
+      this.saveProgress()
+      this.currentChapter--
+      this.scrollPosition = 0
+      this.render()
+    }
+  }
+
   private render() {
+    this.renderAsync().catch(e => console.error('Render error:', e))
+  }
+
+  private async renderAsync() {
     const chapter = this.chapters[this.currentChapter]
     const progress = this.chapters.length > 0
       ? (this.currentChapter + 1) / this.chapters.length
@@ -116,21 +272,26 @@ export class EpubRenderer extends HTMLElement {
           display: flex;
           flex-direction: column;
           height: 100%;
-          background: #0a0a1a;
-          color: #e0e0ff;
+          background: #0a0014;
+          color: #f0e6ff;
         }
         .reader-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
           padding: 12px 24px;
-          border-bottom: 1px solid #2a2a5a;
-          background: #12122a;
+          border-bottom: 1px solid #3d0066;
+          background: #140024;
+          flex-shrink: 0;
         }
         .chapter-title {
-          font-family: 'Orbitron', sans-serif;
+          font-family: '3270 Nerd Font', 'Orbitron', sans-serif;
           font-size: 14px;
-          color: #05d9e8;
+          color: #b300ff;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 50%;
         }
         .reader-controls {
           display: flex;
@@ -139,20 +300,26 @@ export class EpubRenderer extends HTMLElement {
         }
         .btn-icon {
           background: transparent;
-          border: 1px solid #2a2a5a;
-          color: #a0a0d0;
+          border: 1px solid #3d0066;
+          color: #b899d9;
           padding: 6px 12px;
           cursor: pointer;
-          font-family: 'Orbitron', sans-serif;
+          font-family: '3270 Nerd Font', 'Orbitron', sans-serif;
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 1px;
           transition: all 150ms ease;
         }
         .btn-icon:hover {
-          border-color: #05d9e8;
-          color: #05d9e8;
-          box-shadow: 0 0 8px rgba(5, 217, 232, 0.3);
+          border-color: #b300ff;
+          color: #b300ff;
+          box-shadow: 0 0 12px rgba(179, 0, 255, 0.4);
+        }
+        .btn-icon:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+          border-color: #1e0036;
+          color: #6b4c85;
         }
         .font-picker-wrapper {
           position: relative;
@@ -162,25 +329,25 @@ export class EpubRenderer extends HTMLElement {
           top: 100%;
           right: 0;
           margin-top: 8px;
-          background: #12122a;
-          border: 1px solid #2a2a5a;
+          background: #140024;
+          border: 1px solid #3d0066;
           border-radius: 4px;
           max-height: 300px;
           overflow-y: auto;
           min-width: 220px;
           z-index: 300;
           display: none;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
         }
         .font-picker-dropdown.visible {
           display: block;
         }
         .font-picker-header {
           padding: 10px 14px;
-          font-family: 'Orbitron', sans-serif;
+          font-family: '3270 Nerd Font', 'Orbitron', sans-serif;
           font-size: 11px;
-          color: #05d9e8;
-          border-bottom: 1px solid #2a2a5a;
+          color: #b300ff;
+          border-bottom: 1px solid #3d0066;
           text-transform: uppercase;
           letter-spacing: 1px;
         }
@@ -188,26 +355,26 @@ export class EpubRenderer extends HTMLElement {
           padding: 10px 14px;
           cursor: pointer;
           font-size: 13px;
-          color: #a0a0d0;
+          color: #b899d9;
           transition: all 150ms ease;
-          border-bottom: 1px solid #1a1a3e;
+          border-bottom: 1px solid #1e0036;
         }
         .font-option:hover {
-          background: rgba(5, 217, 232, 0.1);
-          color: #05d9e8;
+          background: rgba(179, 0, 255, 0.12);
+          color: #b300ff;
         }
         .font-option.active {
-          color: #ff2a6d;
-          background: rgba(255, 42, 109, 0.05);
+          color: #ff00ff;
+          background: rgba(255, 0, 255, 0.08);
         }
         .font-option .font-family {
           font-size: 11px;
-          color: #606090;
+          color: #6b4c85;
           margin-top: 2px;
         }
         .reader-body {
           flex: 1;
-          overflow-y: auto;
+          overflow: hidden;
           position: relative;
         }
         .progress-bar {
@@ -216,13 +383,13 @@ export class EpubRenderer extends HTMLElement {
           left: 0;
           right: 0;
           height: 2px;
-          background: #222250;
+          background: #1e0036;
           z-index: 100;
         }
         .progress-fill {
           height: 100%;
-          background: linear-gradient(90deg, #ff2a6d, #05d9e8);
-          box-shadow: 0 0 10px #05d9e8;
+          background: linear-gradient(90deg, #ff00ff, #b300ff);
+          box-shadow: 0 0 10px #b300ff;
           width: ${progress * 100}%;
           transition: width 0.3s ease;
         }
@@ -230,7 +397,7 @@ export class EpubRenderer extends HTMLElement {
           width: 100%;
           height: 100%;
           border: none;
-          background: #0a0a1a;
+          background: #0a0014;
         }
         .nav-overlay {
           position: fixed;
@@ -238,8 +405,8 @@ export class EpubRenderer extends HTMLElement {
           left: 0;
           bottom: 0;
           width: 300px;
-          background: #12122a;
-          border-right: 1px solid #2a2a5a;
+          background: #140024;
+          border-right: 1px solid #3d0066;
           transform: translateX(-100%);
           transition: transform 250ms ease;
           z-index: 200;
@@ -250,31 +417,31 @@ export class EpubRenderer extends HTMLElement {
           transform: translateX(0);
         }
         .nav-title {
-          font-family: 'Orbitron', sans-serif;
+          font-family: '3270 Nerd Font', 'Orbitron', sans-serif;
           font-size: 14px;
-          color: #05d9e8;
+          color: #b300ff;
           margin-bottom: 16px;
           text-transform: uppercase;
           letter-spacing: 2px;
         }
         .nav-item {
           padding: 8px 0;
-          color: #a0a0d0;
+          color: #b899d9;
           cursor: pointer;
           font-size: 13px;
-          border-bottom: 1px solid #1a1a3e;
+          border-bottom: 1px solid #1e0036;
           transition: color 150ms ease;
         }
         .nav-item:hover {
-          color: #ff2a6d;
+          color: #ff00ff;
         }
         .nav-item.active {
-          color: #05d9e8;
+          color: #b300ff;
         }
         .overlay-backdrop {
           position: fixed;
           inset: 0;
-          background: rgba(10, 10, 26, 0.8);
+          background: rgba(10, 0, 20, 0.85);
           opacity: 0;
           pointer-events: none;
           transition: opacity 250ms ease;
@@ -283,6 +450,30 @@ export class EpubRenderer extends HTMLElement {
         .overlay-backdrop.visible {
           opacity: 1;
           pointer-events: auto;
+        }
+        .page-hint {
+          position: fixed;
+          bottom: 20px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(20, 0, 36, 0.95);
+          border: 1px solid #3d0066;
+          padding: 6px 16px;
+          border-radius: 4px;
+          font-family: '3270 Nerd Font', 'Orbitron', sans-serif;
+          font-size: 11px;
+          color: #6b4c85;
+          z-index: 50;
+          pointer-events: none;
+        }
+        .page-hint kbd {
+          background: #1e0036;
+          border: 1px solid #3d0066;
+          padding: 2px 6px;
+          border-radius: 3px;
+          color: #b899d9;
+          font-family: monospace;
+          font-size: 10px;
         }
       </style>
 
@@ -320,8 +511,8 @@ export class EpubRenderer extends HTMLElement {
             </div>
           </div>
           <button class="btn-icon" id="btn-toc">Contents</button>
-          <button class="btn-icon" id="btn-prev">← Prev</button>
-          <button class="btn-icon" id="btn-next">Next →</button>
+          <button class="btn-icon" id="btn-prev" ${this.currentChapter <= 0 ? 'disabled' : ''}>← Prev</button>
+          <button class="btn-icon" id="btn-next" ${this.currentChapter >= this.chapters.length - 1 ? 'disabled' : ''}>Next →</button>
         </div>
       </div>
 
@@ -329,11 +520,15 @@ export class EpubRenderer extends HTMLElement {
         <iframe class="content-frame" id="content-frame"
                 sandbox="allow-same-origin"></iframe>
       </div>
+
+      <div class="page-hint">
+        <kbd>←</kbd> prev <kbd>→</kbd> next <kbd>esc</kbd> close menu
+      </div>
     `
 
     this.setupEventListeners()
     if (chapter) {
-      this.loadChapterContent(chapter)
+      await this.loadChapterContent(chapter)
     }
   }
 
@@ -366,19 +561,8 @@ export class EpubRenderer extends HTMLElement {
       this.render()
     })
 
-    this.shadowRoot!.getElementById('btn-prev')?.addEventListener('click', () => {
-      if (this.currentChapter > 0) {
-        this.currentChapter--
-        this.render()
-      }
-    })
-
-    this.shadowRoot!.getElementById('btn-next')?.addEventListener('click', () => {
-      if (this.currentChapter < this.chapters.length - 1) {
-        this.currentChapter++
-        this.render()
-      }
-    })
+    this.shadowRoot!.getElementById('btn-prev')?.addEventListener('click', () => this.goPrev())
+    this.shadowRoot!.getElementById('btn-next')?.addEventListener('click', () => this.goNext())
 
     this.shadowRoot!.querySelectorAll('.nav-item').forEach(item => {
       item.addEventListener('click', (e) => {
@@ -400,17 +584,29 @@ export class EpubRenderer extends HTMLElement {
     }
 
     const selectedFont = this.getSelectedFont()
-    const fontFamily = selectedFont?.family || 'Inter, Georgia, serif'
     const fontPath = selectedFont?.path || ''
+    const fontName = selectedFont?.name || '3270 Nerd Font'
 
-    const fontFaceRule = fontPath
-      ? `@font-face {
-          font-family: 'ReaderFont';
-          src: url('file://${fontPath}') format('truetype');
-          font-weight: 400;
-          font-style: normal;
-        }`
-      : ''
+    // Build font-face rule - try local() first, fall back to base64
+    let fontFaceRule = ''
+    let fontFamilyValue = 'Georgia, serif'
+
+    if (fontPath) {
+      const base64 = this.fontBase64Map.get(fontPath)
+      console.log(`[Font] Selected: ${fontName} at ${fontPath}, base64 found: ${!!base64}`)
+      
+      // Use local() reference to system font - works in WebKitGTK if font is installed
+      fontFaceRule = `@font-face {
+        font-family: 'ReaderFont';
+        src: local('3270 Nerd Font'), local('3270NF'), local('${fontName}'), local('${fontName.replace(/\s/g, '')}');
+        font-weight: 400;
+        font-style: normal;
+      }`
+      fontFamilyValue = "'ReaderFont', monospace"
+      console.log(`[Font] Using local() reference for: ${fontName}`)
+    } else {
+      console.warn(`[Font] No fontPath selected`)
+    }
 
     const html = `
       <!DOCTYPE html>
@@ -420,9 +616,9 @@ export class EpubRenderer extends HTMLElement {
         <style>
           ${fontFaceRule}
           :root {
-            --reader-bg: #0a0a1a;
-            --reader-text: #e0e0ff;
-            --reader-accent: #05d9e8;
+            --reader-bg: #0a0014;
+            --reader-text: #f0e6ff;
+            --reader-accent: #b300ff;
             --reader-font-size: 18px;
             --reader-line-height: 1.8;
             --reader-margin: 40px;
@@ -430,17 +626,24 @@ export class EpubRenderer extends HTMLElement {
           body {
             background: var(--reader-bg) !important;
             color: var(--reader-text) !important;
-            font-family: 'ReaderFont', ${fontFamily}, Georgia, serif !important;
+            font-family: ${fontFamilyValue} !important;
             font-size: var(--reader-font-size) !important;
             line-height: var(--reader-line-height) !important;
+            font-weight: 400 !important;
             max-width: 700px;
             margin: 0 auto;
             padding: var(--reader-margin);
           }
-          * { background: transparent !important; color: var(--reader-text) !important; }
-          a { color: var(--reader-accent) !important; }
-          img { max-width: 100%; height: auto; filter: brightness(0.9) contrast(1.1); }
-          ::selection { background: rgba(5, 217, 232, 0.3); color: #fff; }
+          * { background: transparent !important; color: var(--reader-text) !important; font-family: inherit !important; font-weight: inherit !important; }
+          a { color: var(--reader-accent) !important; text-decoration: underline; }
+          a:hover { color: #ff00ff !important; }
+          img { max-width: 100%; height: auto; filter: brightness(0.95) contrast(1.05); }
+          ::selection { background: rgba(179, 0, 255, 0.35); color: #fff; }
+          h1, h2, h3, h4, h5, h6 { color: #ff00ff !important; margin-top: 1.5em; margin-bottom: 0.5em; font-family: ${fontFamilyValue} !important; font-weight: 700 !important; }
+          p { margin-bottom: 1em; }
+          blockquote { border-left: 3px solid #b300ff; padding-left: 16px; margin-left: 0; color: #b899d9 !important; }
+          code { background: #140024 !important; padding: 2px 6px; border-radius: 3px; font-family: ${fontFamilyValue} !important; font-size: 0.9em; }
+          pre { background: #140024 !important; padding: 16px; border-radius: 6px; overflow-x: auto; font-family: ${fontFamilyValue} !important; }
         </style>
       </head>
       <body>${content}</body>
@@ -448,6 +651,16 @@ export class EpubRenderer extends HTMLElement {
     `
 
     frame.srcdoc = html
+
+    // Restore scroll position after content loads
+    if (this.scrollPosition > 0) {
+      frame.onload = () => {
+        const frameDoc = frame.contentDocument || frame.contentWindow?.document
+        if (frameDoc) {
+          frameDoc.documentElement.scrollTop = this.scrollPosition
+        }
+      }
+    }
   }
 }
 

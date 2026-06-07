@@ -27,9 +27,30 @@ fn main() {
         .setup(|app| {
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let app_dir = app_handle.path().app_data_dir().unwrap();
+                let app_dir = match app_handle.path().app_data_dir() {
+                    Ok(dir) => dir,
+                    Err(e) => {
+                        tracing::error!("Failed to get app data dir: {}", e);
+                        return;
+                    }
+                };
                 let db_path = app_dir.join("library.db");
-                std::fs::create_dir_all(&app_dir).ok();
+                tracing::info!("App data dir: {:?}", app_dir);
+                tracing::info!("DB path: {:?}", db_path);
+                
+                if let Err(e) = std::fs::create_dir_all(&app_dir) {
+                    tracing::error!("Failed to create app data dir: {}", e);
+                    return;
+                }
+                
+                // Test write permissions
+                let test_file = app_dir.join(".write_test");
+                if let Err(e) = std::fs::write(&test_file, b"test") {
+                    tracing::error!("Directory not writable: {}", e);
+                    return;
+                }
+                let _ = std::fs::remove_file(&test_file);
+                tracing::info!("Directory is writable");
 
                 match synthreader_core::db::LibraryDb::open(&db_path).await {
                     Ok(db) => {
@@ -50,6 +71,7 @@ fn main() {
             greet,
             add_books,
             get_books,
+            delete_book,
             get_book_cover,
             add_feed,
             get_feeds,
@@ -108,7 +130,9 @@ fn main() {
             import_inoreader_opml,
             import_newsblur_opml,
             is_first_run,
-            set_first_run_complete
+            set_first_run_complete,
+            save_book_progress,
+            get_book_progress
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -397,6 +421,20 @@ async fn get_books(app: tauri::AppHandle) -> Result<Vec<BookDto>, String> {
     }
 
     Ok(books)
+}
+
+#[tauri::command]
+async fn delete_book(app: tauri::AppHandle, book_id: i64) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.delete_book(book_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -998,14 +1036,26 @@ async fn get_book_chapters(
     let epub = synthreader_core::formats::epub::parse_epub(&path)
         .map_err(|e| e.to_string())?;
 
-    let chapters = epub
-        .toc
-        .into_iter()
-        .map(|entry| ChapterDto {
-            href: entry.href,
-            title: entry.label,
-        })
-        .collect();
+    let chapters = if epub.toc.len() > 1 {
+        // Use TOC when it has meaningful structure
+        epub.toc
+            .into_iter()
+            .map(|entry| ChapterDto {
+                href: entry.href,
+                title: entry.label,
+            })
+            .collect()
+    } else {
+        // Fall back to spine for flat TOCs
+        epub.spine
+            .into_iter()
+            .enumerate()
+            .map(|(i, entry)| ChapterDto {
+                href: entry.path,
+                title: entry.title.unwrap_or_else(|| format!("Page {}", i + 1)),
+            })
+            .collect()
+    };
 
     Ok(chapters)
 }
@@ -1181,4 +1231,58 @@ async fn set_first_run_complete(app: tauri::AppHandle) -> Result<(), String> {
     let db = synthreader_core::db::LibraryDb::open(&db_path).await.map_err(|e| e.to_string())?;
     let manager = synthreader_core::SettingsManager::new(&db);
     manager.set_first_run_complete().await.map_err(|e| e.to_string())
+}
+
+#[derive(serde::Deserialize)]
+struct BookProgressInput {
+    bookId: i64,
+    chapterIndex: i64,
+    scrollPosition: f64,
+}
+
+#[derive(serde::Serialize)]
+struct BookProgressOutput {
+    bookId: i64,
+    chapterIndex: i64,
+    scrollPosition: f64,
+}
+
+#[tauri::command]
+async fn save_book_progress(
+    app: tauri::AppHandle,
+    progress: BookProgressInput,
+) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.save_reading_progress(progress.bookId, progress.chapterIndex, progress.scrollPosition)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_book_progress(
+    app: tauri::AppHandle,
+    book_id: i64,
+) -> Result<Option<BookProgressOutput>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join("library.db");
+
+    let db = synthreader_core::db::LibraryDb::open(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let progress = db.get_reading_progress(book_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(progress.map(|(chapter_index, scroll_position)| BookProgressOutput {
+        bookId: book_id,
+        chapterIndex: chapter_index,
+        scrollPosition: scroll_position,
+    }))
 }

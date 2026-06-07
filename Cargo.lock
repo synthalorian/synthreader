@@ -4533,6 +4533,7 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "atom_syndication",
+ "base64 0.22.1",
  "chrono",
  "dirs",
  "epub",
