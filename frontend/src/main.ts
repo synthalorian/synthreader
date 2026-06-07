@@ -43,7 +43,7 @@ interface ExtractedContent {
   published_time?: string
 }
 
-type View = 'books' | 'articles' | 'reader'
+type View = 'books' | 'articles' | 'reader' | 'feeds'
 type ArticleFilter = 'all' | 'unread' | 'starred'
 
 let books: Book[] = []
@@ -55,6 +55,8 @@ let selectedArticleIndex = -1
 let searchQuery = ''
 let currentArticle: Article | null = null
 let extractedContent: ExtractedContent | null = null
+let feedArticles: Map<number, Article[]> = new Map()
+let expandedFeeds: Set<number> = new Set()
 
 function renderApp() {
   const app = document.getElementById('app')!
@@ -62,7 +64,7 @@ function renderApp() {
     <div class="app-layout">
       <aside class="sidebar">
         <div class="sidebar-header">
-          <h2 class="logo-small">SYNTH</h2>
+          <h2 class="logo-small">SYNTHREADER</h2>
         </div>
         <nav class="sidebar-nav">
           <div class="nav-section">
@@ -70,7 +72,7 @@ function renderApp() {
             <a href="#" class="nav-item ${currentView === 'articles' ? 'active' : ''}" data-view="articles">
               <span>✍️</span> Articles <span class="count" id="count-articles">0</span>
             </a>
-            <a href="#" class="nav-item" data-view="feeds">
+            <a href="#" class="nav-item ${currentView === 'feeds' ? 'active' : ''}" data-view="feeds">
               <span>📡</span> Feeds <span class="count" id="count-feeds">0</span>
             </a>
           </div>
@@ -100,6 +102,10 @@ function renderMainContent(): string {
     return renderBooksView()
   } else if (currentView === 'articles') {
     return renderArticlesView()
+  } else if (currentView === 'feeds') {
+    return renderFeedsView()
+  } else if (currentView === 'reader') {
+    return ''  // Reader renders directly into main-content
   }
   return ''
 }
@@ -139,7 +145,7 @@ function renderArticlesView(): string {
     </header>
     <div class="content-area" id="content-area">
       <div class="feed-form" id="feed-form" style="display: none;">
-        <input type="text" id="feed-url-input" placeholder="Enter feed URL..." />
+        <input type="text" id="feed-url-input" placeholder="Enter website or feed URL..." />
         <button class="btn-neon" id="submit-feed-btn">Add</button>
         <button class="reader-btn" id="cancel-feed-btn">Cancel</button>
       </div>
@@ -153,6 +159,33 @@ function renderArticlesView(): string {
         <div class="empty-icon">✍️</div>
         <h2>No articles yet</h2>
         <p>Add feeds to start collecting articles</p>
+      </div>
+    </div>
+  `
+}
+
+function renderFeedsView(): string {
+  return `
+    <header class="top-bar">
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="Search feeds..." />
+      </div>
+      <div class="actions">
+        <button class="btn-neon" id="add-feed-btn">+ Add Feed</button>
+        <button class="btn-neon" id="refresh-feeds-btn" style="margin-left: 8px">↻ Refresh</button>
+      </div>
+    </header>
+    <div class="content-area" id="content-area">
+      <div class="feed-form" id="feed-form" style="display: none;">
+        <input type="text" id="feed-url-input" placeholder="Enter website or feed URL..." />
+        <button class="btn-neon" id="submit-feed-btn">Add</button>
+        <button class="reader-btn" id="cancel-feed-btn">Cancel</button>
+      </div>
+      <div class="feed-list" id="feed-list"></div>
+      <div class="empty-state" id="empty-state" style="display: none;">
+        <div class="empty-icon">📡</div>
+        <h2>No feeds yet</h2>
+        <p>Add RSS feeds to start collecting articles</p>
       </div>
     </div>
   `
@@ -256,10 +289,10 @@ function renderArticleList() {
 }
 
 async function loadData() {
+  // Always load feeds and articles for counts
+  await Promise.all([loadFeeds(), loadArticles()])
   if (currentView === 'books') {
     await loadBooks()
-  } else if (currentView === 'articles') {
-    await Promise.all([loadFeeds(), loadArticles()])
   }
 }
 
@@ -301,11 +334,9 @@ function setupEventListeners() {
     el.addEventListener('click', (e) => {
       e.preventDefault()
       const view = (e.currentTarget as HTMLElement).dataset.view as View
-      if (view && view !== 'feeds') {
+      if (view) {
         currentView = view
         renderApp()
-      } else if (view === 'feeds') {
-        alert('Feed management coming in v0.3.0')
       }
     })
   })
@@ -319,6 +350,8 @@ function setupEventListeners() {
     })
   } else if (currentView === 'articles') {
     setupArticleListeners()
+  } else if (currentView === 'feeds') {
+    setupFeedsListeners()
   }
 
   document.addEventListener('keydown', handleKeyboard)
@@ -375,6 +408,158 @@ function setupArticleListeners() {
       openArticle(id)
     }
   })
+}
+
+function setupFeedsListeners() {
+  const searchInput = document.getElementById('search-input') as HTMLInputElement
+  searchInput?.addEventListener('input', (e) => {
+    const query = (e.target as HTMLInputElement).value.toLowerCase()
+    filterFeeds(query)
+  })
+
+  document.getElementById('add-feed-btn')?.addEventListener('click', () => {
+    const form = document.getElementById('feed-form')!
+    form.style.display = form.style.display === 'none' ? 'flex' : 'none'
+  })
+
+  document.getElementById('cancel-feed-btn')?.addEventListener('click', () => {
+    document.getElementById('feed-form')!.style.display = 'none'
+  })
+
+  document.getElementById('submit-feed-btn')?.addEventListener('click', addFeed)
+  document.getElementById('feed-url-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addFeed()
+  })
+
+  document.getElementById('refresh-feeds-btn')?.addEventListener('click', refreshFeeds)
+
+  // Feed expand/collapse and article clicks
+  document.getElementById('feed-list')?.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement
+    const feedHeader = target.closest('.feed-header') as HTMLElement
+    if (feedHeader) {
+      const feedId = Number(feedHeader.dataset.id)
+      if (expandedFeeds.has(feedId)) {
+        expandedFeeds.delete(feedId)
+      } else {
+        expandedFeeds.add(feedId)
+        loadArticlesForFeed(feedId)
+      }
+      renderFeedList()
+      return
+    }
+
+    const articleEl = target.closest('.feed-article-item') as HTMLElement
+    if (articleEl) {
+      const articleId = Number(articleEl.dataset.id)
+      openArticle(articleId)
+      return
+    }
+
+    const starEl = target.closest('.feed-article-star') as HTMLElement
+    if (starEl) {
+      e.stopPropagation()
+      const articleId = Number(starEl.dataset.id)
+      toggleStar(articleId)
+      return
+    }
+
+    const readEl = target.closest('.feed-article-read-btn') as HTMLElement
+    if (readEl) {
+      e.stopPropagation()
+      const articleId = Number(readEl.dataset.id)
+      toggleRead(articleId)
+      return
+    }
+  })
+
+  renderFeedList()
+}
+
+function filterFeeds(query: string) {
+  const filtered = feeds.filter(f =>
+    f.title.toLowerCase().includes(query) ||
+    f.url.toLowerCase().includes(query)
+  )
+  renderFeedList(filtered)
+}
+
+async function loadArticlesForFeed(feedId: number) {
+  try {
+    const feedArticlesList = await invoke<Article[]>('get_articles', { feedId })
+    feedArticles.set(feedId, feedArticlesList)
+    renderFeedList()
+  } catch (e) {
+    console.error('Failed to load articles for feed:', e)
+  }
+}
+
+function renderFeedList(feedList?: Feed[]) {
+  const list = document.getElementById('feed-list')
+  const emptyState = document.getElementById('empty-state')
+  if (!list) return
+
+  const displayFeeds = feedList || feeds
+
+  if (displayFeeds.length === 0) {
+    list.innerHTML = ''
+    emptyState!.style.display = feeds.length === 0 ? 'flex' : 'none'
+    return
+  }
+
+  emptyState!.style.display = 'none'
+  list.innerHTML = displayFeeds.map(feed => {
+    const isExpanded = expandedFeeds.has(feed.id)
+    const articlesForFeed = feedArticles.get(feed.id) || []
+    const unreadCount = articlesForFeed.filter(a => !a.read).length
+
+    return `
+      <div class="feed-group ${isExpanded ? 'expanded' : ''}" data-id="${feed.id}">
+        <div class="feed-header" data-id="${feed.id}">
+          <span class="feed-expand-icon">${isExpanded ? '▼' : '▶'}</span>
+          <div class="feed-info">
+            <div class="feed-title">${escapeHtml(feed.title)}</div>
+            <div class="feed-url">${escapeHtml(feed.url)}</div>
+          </div>
+          <span class="feed-count">${articlesForFeed.length > 0 ? `${articlesForFeed.length} articles${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}` : ''}</span>
+        </div>
+        ${isExpanded ? renderFeedArticles(articlesForFeed) : ''}
+      </div>
+    `
+  }).join('')
+}
+
+function renderFeedArticles(articlesForFeed: Article[]): string {
+  if (articlesForFeed.length === 0) {
+    return `
+      <div class="feed-articles-list">
+        <div class="feed-articles-empty">No articles in this feed yet. Click ↻ Refresh to fetch.</div>
+      </div>
+    `
+  }
+
+  return `
+    <div class="feed-articles-list">
+      ${articlesForFeed.map(article => `
+        <div class="feed-article-item ${article.read ? 'read' : ''}" data-id="${article.id}">
+          <span class="feed-article-star ${article.starred ? 'starred' : ''}" data-id="${article.id}">
+            ${article.starred ? '★' : '☆'}
+          </span>
+          <div class="feed-article-content">
+            <div class="feed-article-title">${escapeHtml(article.title)}</div>
+            <div class="feed-article-meta">
+              ${article.author ? `<span class="author">by ${escapeHtml(article.author)}</span>` : ''}
+              <span>${formatDate(article.published_at || article.created_at)}</span>
+            </div>
+            ${article.summary ? `<div class="feed-article-summary">${escapeHtml(article.summary)}</div>` : ''}
+          </div>
+          <button class="feed-article-read-btn" data-id="${article.id}">
+            ${article.read ? 'Unread' : 'Read'}
+          </button>
+        </div>
+      `).join('')}
+    </div>
+  `
 }
 
 function handleKeyboard(e: KeyboardEvent) {
@@ -578,22 +763,125 @@ async function addFeed() {
   const url = input.value.trim()
   if (!url) return
 
+  // Show loading state
+  const submitBtn = document.getElementById('submit-feed-btn') as HTMLButtonElement
+  const originalText = submitBtn?.textContent || 'Add'
+  if (submitBtn) submitBtn.textContent = 'Discovering...'
+
   try {
-    await invoke('add_feed', {
-      title: url,
-      url,
-      siteUrl: null,
-      description: null,
-      folderId: null,
-    })
-    input.value = ''
-    document.getElementById('feed-form')!.style.display = 'none'
-    await loadFeeds()
-    await refreshFeeds()
+    // Try to discover feeds from the URL
+    const discovered = await invoke<Array<{ title: string; url: string; feed_type: string }>>('discover_feeds', { url })
+
+    if (discovered.length === 0) {
+      alert('No feeds found at that URL. Try entering the direct RSS/Atom feed URL.')
+      if (submitBtn) submitBtn.textContent = originalText
+      return
+    }
+
+    if (discovered.length === 1) {
+      // Auto-add single discovered feed
+      const feed = discovered[0]
+      await invoke('add_feed', {
+        title: feed.title,
+        url: feed.url,
+        siteUrl: url,
+        description: null,
+        folderId: null,
+      })
+      input.value = ''
+      document.getElementById('feed-form')!.style.display = 'none'
+      await loadFeeds()
+      await refreshFeeds()
+    } else {
+      // Show feed picker
+      showFeedPicker(discovered, url)
+    }
   } catch (e) {
-    console.error('Failed to add feed:', e)
-    alert('Failed to add feed. Please check the URL and try again.')
+    console.error('Failed to discover/add feed:', e)
+    // Fallback: try adding the URL directly as a feed
+    try {
+      await invoke('add_feed', {
+        title: url,
+        url,
+        siteUrl: null,
+        description: null,
+        folderId: null,
+      })
+      input.value = ''
+      document.getElementById('feed-form')!.style.display = 'none'
+      await loadFeeds()
+      await refreshFeeds()
+    } catch (fallbackErr) {
+      alert('Failed to add feed. Please check the URL and try again.')
+    }
+  } finally {
+    if (submitBtn) submitBtn.textContent = originalText
   }
+}
+
+function showFeedPicker(discovered: Array<{ title: string; url: string; feed_type: string }>, siteUrl: string) {
+  const form = document.getElementById('feed-form')!
+  form.innerHTML = `
+    <div class="feed-picker" style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
+      <div style="font-family: var(--font-display); font-size: 12px; color: var(--color-neon-purple); text-transform: uppercase; letter-spacing: 1px;">Multiple feeds found — select one:</div>
+      <div class="feed-options" style="display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto;">
+        ${discovered.map((feed, i) => `
+          <button class="feed-option-btn" data-index="${i}" style="text-align: left; padding: 10px 12px; background: var(--color-bg-tertiary); border: 1px solid var(--color-border); color: var(--color-text-primary); cursor: pointer; transition: all 150ms; border-radius: var(--radius-sm);">
+            <div style="font-weight: 700; font-size: 13px;">${escapeHtml(feed.title)}</div>
+            <div style="font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono);">${escapeHtml(feed.feed_type)} — ${escapeHtml(feed.url)}</div>
+          </button>
+        `).join('')}
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 4px;">
+        <button class="reader-btn" id="cancel-feed-picker">Cancel</button>
+      </div>
+    </div>
+  `
+
+  form.querySelectorAll('.feed-option-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const index = parseInt((e.currentTarget as HTMLElement).dataset.index!)
+      const feed = discovered[index]
+      try {
+        await invoke('add_feed', {
+          title: feed.title,
+          url: feed.url,
+          siteUrl: siteUrl,
+          description: null,
+          folderId: null,
+        })
+        // Restore form
+        restoreFeedForm()
+        await loadFeeds()
+        await refreshFeeds()
+      } catch (err) {
+        alert('Failed to add feed: ' + err)
+      }
+    })
+  })
+
+  document.getElementById('cancel-feed-picker')?.addEventListener('click', () => {
+    restoreFeedForm()
+  })
+}
+
+function restoreFeedForm() {
+  const form = document.getElementById('feed-form')!
+  form.innerHTML = `
+    <input type="text" id="feed-url-input" placeholder="Enter website or feed URL..." />
+    <button class="btn-neon" id="submit-feed-btn">Add</button>
+    <button class="reader-btn" id="cancel-feed-btn">Cancel</button>
+  `
+  form.style.display = 'none'
+
+  // Re-attach listeners
+  document.getElementById('submit-feed-btn')?.addEventListener('click', addFeed)
+  document.getElementById('feed-url-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addFeed()
+  })
+  document.getElementById('cancel-feed-btn')?.addEventListener('click', () => {
+    document.getElementById('feed-form')!.style.display = 'none'
+  })
 }
 
 async function refreshFeeds() {
@@ -656,7 +944,7 @@ async function renderBookGrid(booksToRender: Book[]) {
     const coverUrl = covers[i]
     return `
     <div class="book-card" data-id="${book.id}">
-      <div class="book-cover" onclick="openBook(${book.id})">
+      <div class="book-cover" data-book-id="${book.id}">
         ${coverUrl
           ? `<img src="${coverUrl}" alt="${escapeHtml(book.title)}" loading="lazy">`
           : `<div class="cover-placeholder">
@@ -668,6 +956,7 @@ async function renderBookGrid(booksToRender: Book[]) {
             <div class="progress-fill" style="width: ${book.progress * 100}%"></div>
           </div>
         ` : ''}
+        <button class="book-delete-btn" data-book-id="${book.id}" title="Delete book">×</button>
       </div>
       <div class="book-info">
         <h3 class="book-title">${escapeHtml(book.title)}</h3>
@@ -675,6 +964,23 @@ async function renderBookGrid(booksToRender: Book[]) {
       </div>
     </div>
   `}).join('')
+
+  // Attach click handlers after rendering
+  grid.querySelectorAll('.book-cover').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).classList.contains('book-delete-btn')) return
+      const bookId = Number((el as HTMLElement).dataset.bookId)
+      openBook(bookId)
+    })
+  })
+
+  grid.querySelectorAll('.book-delete-btn').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const bookId = Number((el as HTMLElement).dataset.bookId)
+      deleteBook(bookId)
+    })
+  })
 }
 
 function filterBooks(query: string) {
@@ -709,13 +1015,28 @@ async function addBooks() {
 }
 
 async function openBook(bookId: number) {
-  const app = document.getElementById('app')!
-  app.innerHTML = ''
+  currentView = 'reader'
+  const main = document.getElementById('main-content')!
+  main.innerHTML = ''
 
   const reader = document.createElement('epub-renderer') as any
+  reader.style.cssText = 'display: flex; flex-direction: column; height: 100%;'
   await reader.loadEpub(bookId)
 
-  app.appendChild(reader)
+  main.appendChild(reader)
+}
+
+async function deleteBook(bookId: number) {
+  if (!confirm('Delete this book from your library?')) return
+  try {
+    await invoke('delete_book', { bookId })
+    books = books.filter(b => b.id !== bookId)
+    updateBookCounts()
+    renderBookGrid(books)
+  } catch (e) {
+    console.error('Failed to delete book:', e)
+    alert('Failed to delete book')
+  }
 }
 
 function escapeHtml(text: string): string {

@@ -1,30 +1,30 @@
 :root {
-  /* Synthwave '84 Palette */
-  --color-bg-primary: #0a0a1a;
-  --color-bg-secondary: #12122a;
-  --color-bg-tertiary: #1a1a3e;
-  --color-bg-elevated: #222250;
+  /* Deep Purple / Electric Purple / Magenta / Yellow Palette */
+  --color-bg-primary: #0a0014;
+  --color-bg-secondary: #140024;
+  --color-bg-tertiary: #1e0036;
+  --color-bg-elevated: #2a004d;
 
-  --color-neon-pink: #ff2a6d;
-  --color-neon-cyan: #05d9e8;
-  --color-neon-purple: #b026ff;
-  --color-neon-orange: #ff9e00;
-  --color-neon-green: #39ff14;
+  --color-neon-pink: #ff00ff;
+  --color-neon-cyan: #c0ff00;
+  --color-neon-purple: #b300ff;
+  --color-neon-orange: #ffaa00;
+  --color-neon-green: #ccff00;
 
-  --color-text-primary: #e0e0ff;
-  --color-text-secondary: #a0a0d0;
-  --color-text-muted: #606090;
+  --color-text-primary: #f0e6ff;
+  --color-text-secondary: #b899d9;
+  --color-text-muted: #6b4c85;
 
-  --color-border: #2a2a5a;
-  --color-border-hover: var(--color-neon-cyan);
+  --color-border: #3d0066;
+  --color-border-hover: var(--color-neon-purple);
 
-  --font-display: 'Orbitron', 'Segoe UI', sans-serif;
-  --font-body: 'Inter', 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-display: '3270 Nerd Font', 'Orbitron', monospace;
+  --font-body: '3270 Nerd Font', 'Inter', monospace;
+  --font-mono: '3270 Nerd Font Mono', 'JetBrains Mono', monospace;
 
-  --shadow-neon-pink: 0 0 10px rgba(255, 42, 109, 0.5);
-  --shadow-neon-cyan: 0 0 10px rgba(5, 217, 232, 0.5);
-  --shadow-neon-purple: 0 0 10px rgba(176, 38, 255, 0.5);
+  --shadow-neon-pink: 0 0 10px rgba(255, 0, 255, 0.5);
+  --shadow-neon-cyan: 0 0 10px rgba(192, 255, 0, 0.5);
+  --shadow-neon-purple: 0 0 10px rgba(179, 0, 255, 0.5);
 
   --radius-sm: 4px;
   --radius-md: 8px;

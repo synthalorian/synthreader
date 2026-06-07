@@ -26,6 +26,11 @@ dirs = "6"
 roxmltree = "0.20"
 scraper = "0.22"
 regex = "1"
+base64 = "0.22.1"
 
 [dev-dependencies]
 tempfile = "3"
+
+[[bin]]
+name = "test_file_db"
+path = "src/bin/test_file_db.rs"
