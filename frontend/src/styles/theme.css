@@ -27,6 +27,12 @@ body::before {
   z-index: 0;
 }
 
+[data-theme='blackshield'] body::before {
+  background-image:
+    linear-gradient(rgba(193, 18, 31, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(193, 18, 31, 0.03) 1px, transparent 1px);
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;

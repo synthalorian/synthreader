@@ -33,3 +33,30 @@
   --transition-fast: 150ms ease;
   --transition-medium: 250ms ease;
 }
+
+/* Blackshield — the default theme (blood + steel + bone).
+   Original synthwave palette remains on :root; select it by removing
+   data-theme="blackshield" from <html>. */
+[data-theme='blackshield'] {
+  --color-bg-primary: #0D0D11;
+  --color-bg-secondary: #101014;
+  --color-bg-tertiary: #16161C;
+  --color-bg-elevated: #1A1A20;
+
+  --color-neon-pink: #C1121F;
+  --color-neon-cyan: #7B9DC4;
+  --color-neon-purple: #A4508B;
+  --color-neon-orange: #C9A227;
+  --color-neon-green: #6A994E;
+
+  --color-text-primary: #D8D3C8;
+  --color-text-secondary: #B0ABA0;
+  --color-text-muted: #8A8F98;
+
+  --color-border: #26262E;
+  --color-border-hover: #C1121F;
+
+  --shadow-neon-pink: 0 0 10px rgba(193, 18, 31, 0.5);
+  --shadow-neon-cyan: 0 0 10px rgba(123, 157, 196, 0.5);
+  --shadow-neon-purple: 0 0 10px rgba(164, 80, 139, 0.5);
+}
