@@ -2,7 +2,7 @@
 name = "synthreader"
 version = "1.0.0"
 description = "Synthwave '84 Ebook Reader"
-authors = ["synthalorian"]
+authors = ["synth"]
 edition = "2024"
 
 [build-dependencies]
