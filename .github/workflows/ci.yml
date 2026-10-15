@@ -24,6 +24,7 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      - run: mkdir -p frontend/dist
       - run: cargo build --all-targets
       - run: cargo clippy --all-targets
       - run: cargo test
