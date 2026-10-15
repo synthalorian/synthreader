@@ -143,6 +143,7 @@ mod font_tests {
     }
 
     #[test]
+    #[ignore = "requires the 3270 Nerd Font installed on the local machine"]
     fn test_3270_font_found() {
         let fonts = crate::fonts::discover_system_fonts();
         let font3270 = fonts.iter().find(|f| f.name.to_lowercase().contains("3270") || f.family.to_lowercase().contains("3270"));
@@ -152,6 +153,7 @@ mod font_tests {
 }
 
     #[test]
+    #[ignore = "requires the 3270 Nerd Font installed on the local machine"]
     fn test_font_base64_encoding() {
         let fonts = crate::fonts::discover_system_fonts();
         let font = fonts.iter().find(|f| f.name.to_lowercase().contains("3270")).expect("Should find 3270 font");
@@ -167,6 +169,7 @@ mod font_tests {
     }
 
     #[test]
+    #[ignore = "requires the 3270 Nerd Font installed on the local machine"]
     fn test_font_family_name() {
         let font_path = std::path::PathBuf::from("/usr/share/fonts/nerd-fonts-git/TTF/3270NerdFont-Regular.ttf");
         let family = read_font_family(&font_path);
@@ -184,6 +187,7 @@ mod font_tests {
     }
 
     #[test]
+    #[ignore = "requires the 3270 Nerd Font installed on the local machine"]
     fn test_font_platform_ids() {
         let font_path = std::path::PathBuf::from("/usr/share/fonts/nerd-fonts-git/TTF/3270NerdFont-Regular.ttf");
         let data = std::fs::read(&font_path).unwrap();
