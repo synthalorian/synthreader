@@ -207,6 +207,7 @@ mod epub_tests {
     use std::path::Path;
 
     #[test]
+    #[ignore = "requires a local EPUB under /home/synth/Documents/Books"]
     fn test_parse_programming_ruby() {
         let path = Path::new("/home/synth/Documents/Books/programming-ruby-4_B2.0.epub");
         let epub = crate::formats::epub::parse_epub(path).unwrap();
@@ -219,6 +220,7 @@ mod epub_tests {
     }
 
     #[test]
+    #[ignore = "requires a local EPUB under /home/synth/Documents/Books"]
     fn test_load_chapter_content() {
         let path = Path::new("/home/synth/Documents/Books/programming-ruby-4_B2.0.epub");
         let epub = crate::formats::epub::parse_epub(path).unwrap();
@@ -229,6 +231,7 @@ mod epub_tests {
     }
 
     #[test]
+    #[ignore = "requires a local EPUB under /home/synth/Documents/Books"]
     fn test_spine_parsing() {
         let path = Path::new("/home/synth/Documents/Books/programming-ruby-4_B2.0.epub");
         let epub = crate::formats::epub::parse_epub(path).unwrap();
@@ -244,6 +247,7 @@ mod epub_tests {
     }
 
     #[test]
+    #[ignore = "requires a local EPUB under /home/synth/Documents/Books"]
     fn test_load_spine_content() {
         let path = Path::new("/home/synth/Documents/Books/programming-ruby-4_B2.0.epub");
         let epub = crate::formats::epub::parse_epub(path).unwrap();
@@ -257,6 +261,7 @@ mod epub_tests {
 
 
     #[test]
+    #[ignore = "requires a local EPUB under /home/synth/Documents/Books"]
     fn test_image_inlining() {
         let path = Path::new("/home/synth/Documents/Books/programming-ruby-4_B2.0.epub");
         // f_0039.xhtml has images based on our grep earlier
