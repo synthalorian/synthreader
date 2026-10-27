@@ -24,7 +24,7 @@ legible = "0.4"
 ttf-parser = "0.25"
 dirs = "6"
 roxmltree = "0.20"
-scraper = "0.22"
+scraper = "0.29"
 regex = "1"
 base64 = "0.22.1"
 
