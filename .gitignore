@@ -22,3 +22,4 @@ Thumbs.db
 
 # Config with secrets
 config.toml
+.omo/
