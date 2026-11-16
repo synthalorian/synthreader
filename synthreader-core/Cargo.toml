@@ -15,7 +15,7 @@ tracing = { workspace = true }
 epub = "2"
 mobi = "0.1"
 pdf-extract = "0.7"
-zip = "2"
+zip = "9.0.5"
 rss = "2"
 atom_syndication = "0.12"
 chrono = { workspace = true }
